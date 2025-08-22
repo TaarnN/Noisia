@@ -1,0 +1,7 @@
+/Users/taarn/Documents/PGM/Prog-Languages/Noisia/target/debug/deps/libNoisia-a23db43f3c8e69ff.rmeta: src/main.rs src/tokenizer.rs src/parser.rs
+
+/Users/taarn/Documents/PGM/Prog-Languages/Noisia/target/debug/deps/Noisia-a23db43f3c8e69ff.d: src/main.rs src/tokenizer.rs src/parser.rs
+
+src/main.rs:
+src/tokenizer.rs:
+src/parser.rs:
