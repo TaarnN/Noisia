@@ -204,11 +204,10 @@ pub enum Literal {
 
 #[derive(Debug, Clone)]
 pub struct TypeRef {
-    pub name: String,              // ชื่อ type หลัก เช่น "Box", "Option", "Result"
-    pub generics: Vec<TypeRef>,    // พารามิเตอร์ generic เช่น [T], [K, V], [String, Int]
-    pub nullable: bool,            // รองรับ type? เช่น String? หรือ Option<String>
-    pub pointer: bool,             // รองรับ pointer เช่น *T
-    pub pointer_type: PointerType, // อนาคตอาจขยาย: array, slice, reference, etc.
+    pub name: String,           // ชื่อ type หลัก เช่น "Box", "Option", "Result"
+    pub generics: Vec<TypeRef>, // พารามิเตอร์ generic เช่น [T], [K, V], [String, Int]
+    pub nullable: bool,
+    pub pointer_type: Option<PointerType>, // อนาคตอาจขยาย: array, slice, reference, etc.
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,7 +216,6 @@ pub enum PointerType {
     ManagedPointer,
     WeakPointer,
     SharedPointer,
-    NotPointer,
 }
 
 //
@@ -792,17 +790,17 @@ impl Parser {
         let mut generics = Vec::new();
         let mut nullable = false;
         let mut pointer = false;
-        let mut pointer_type = PointerType::NotPointer;
+        let mut pointer_type = None;
 
         let mut tok = self.peek().clone();
         if tok.token_type == TokenType::Operator {
             pointer = true;
             pointer_type = match tok.lexeme.as_str() {
-                "~" => PointerType::RawPointer,
-                "@" => PointerType::ManagedPointer,
-                "&" => PointerType::WeakPointer,
-                "+" => PointerType::SharedPointer,
-                _ => PointerType::NotPointer,
+                "~" => Some(PointerType::RawPointer),
+                "@" => Some(PointerType::ManagedPointer),
+                "&" => Some(PointerType::WeakPointer),
+                "+" => Some(PointerType::SharedPointer),
+                _ => None,
             };
             self.advance();
         }
@@ -836,7 +834,6 @@ impl Parser {
                 }
             }
             self.expect_nv(TokenType::Operator, ">")?;
-            self.advance();
         }
 
         // Parse nullable modifier
@@ -848,7 +845,6 @@ impl Parser {
             name,
             generics,
             nullable,
-            pointer,
             pointer_type,
         })
     }
@@ -856,7 +852,7 @@ impl Parser {
 
 // operator precedence table
 // Returns (precedence, right_associative)
-fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
+pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
     // Use token.lexeme for many operators; token.token_type can also be used.
     match tok.lexeme.as_str() {
         "||" | "or" => Some((1, false)),
