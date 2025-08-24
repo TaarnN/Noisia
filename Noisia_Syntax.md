@@ -41,7 +41,7 @@ import IO::File::{open, readAll}
 
 ### 3.1 Primitive Types
 
-| ชนิด     | คำย่อ    | ตัวอย่าง                   |
+| ชนิด      | คำย่อ      | ตัวอย่าง                     |
 | -------- | -------- | -------------------------- |
 | Integer  | `Int`    | `let x: Int = 42`          |
 | Floating | `Float`  | `let r: Float = 3.14`      |
@@ -735,13 +735,13 @@ let fiveFactorial = factorial(5)
 
 ---
 
-## 32. Dependent/Refined Types
+## 32. Default Value
 
 ```nx
-fn sqrt(x: Float where x>=0.0) -> Float {…}
+fn hello(name: String = "Unknown Guy") -> Void {...}
 ```
 
-- บังคับเงื่อนไขพารามิเตอร์ตั้งแต่ compile-time
+- = ต่อหลัง type เพื่อกำหนด default value สำหรับ parameter
 
 ---
 
@@ -805,7 +805,7 @@ fn processPayment(p:Payment){…}
 
 ## 38. Advanced Pointer & Reference System
 
-Noisia ใช้ระบบ pointer ที่หลากหลายและปลอดภัย ด้วยสัญลักษณ์ที่ชัดเจนและแสดงเจตนาได้ดี
+Noisia ใช้ระบบ pointer ที่หลากหลายและปลอดภัย
 
 ### 38.1 ชนิดของ Pointer
 
@@ -846,7 +846,7 @@ let val3 = ptr->?
 let val4 = ptr.get()
 ```
 
-- `ptr->` อ่านเป็น "ตาม pointer ไป"
+- `ptr->` dereference ปกติ
 - `ptr->?` ตรวจสอบ null ก่อน dereference
 - เหมาะกับการ chain operations
 
@@ -951,24 +951,7 @@ let result2 = data ~> transform ~> validate ~> serialize
 - ลดความซับซ้อนใน data transformation
 - เหมาะกับ functional programming style
 
-### 38.8 Quantum Pointers (Advanced Feature)
-
-```nx
-// Pointer ที่อาจชี้ไปหลายค่า
-let quantumPtr = ~~[ptr1, ptr2, ptr3]
-
-// Collapse เป็นค่าจริง
-let resolved = quantumPtr.observe()
-
-// ทำงานกับทุก possibility
-quantumPtr.forEach(~> println(*it))
-```
-
-- รองรับ superposition ของหลายค่า
-- ใช้ใน advanced parallel processing
-- Collapse เมื่อต้องการค่าจริง
-
-### 38.9 Complete Example: Linked List
+### 38.8 Complete Example: Linked List
 
 ```nx
 struct Node<T> {
@@ -1011,7 +994,7 @@ impl<T> LinkedList<T> {
 - Safe dereference ป้องกัน null pointer
 - Integration กับ Iterator pattern
 
-### 38.10 Effect System Integration
+### 38.9 Effect System Integration
 
 ```nx
 // Pointers มี effect information
@@ -1342,8 +1325,8 @@ class BankAccount {
 ### 39.8 Generic Classes & Constraints
 
 ```nx
-// Generic class with constraints
-class Stack<T> where T: Comparable {
+// Generic class
+class Stack<T> {
     private items: [T] = [],
 
     fn push(item: T) {
@@ -1359,13 +1342,13 @@ class Stack<T> where T: Comparable {
     }
 
     // Generic method with additional constraints
-    fn findMax<U>() -> U? where T: U, U: Ord {
+    fn findMax<U>() -> U? {
         return items.max()
     }
 }
 
 // Specialized generic class
-class PriorityQueue<T: Ord> extends Stack<T> {
+class PriorityQueue<T> extends Stack<T> {
     @override fn push(item: T) {
         // Insert in priority order
         let pos = items.binarySearch(item)
@@ -1374,8 +1357,7 @@ class PriorityQueue<T: Ord> extends Stack<T> {
 }
 ```
 
-- Generic classes พร้อม type constraints
-- `where` clauses สำหรับ complex constraints
+- Generic classes
 - Generic method overloading
 
 ### 39.9 Singleton & Static Members
@@ -2343,6 +2325,185 @@ fn cleanupOldCheckpoints() {
 - `temporal memory { config }` memory limits
 - `preserve { ... }` selective state saving
 - `gc temporal` manual cleanup
+
+---
+
+## 46. Built-in methods
+
+ตารางด้านล่างสรุป **built-in methods** ที่สำคัญของหลาย ๆ type ใน Noisia พร้อมตัวอย่างการใช้งาน สัญลักษณ์พารามิเตอร์ และคุณสมบัติพิเศษ (behavior / complexity / notes)
+
+> หมายเหตุ: ตารางนี้รวบรวมเมธอดที่พบบ่อยและมีประโยชน์สำหรับการเขียนโค้ดประจำวัน — หากต้องการสามารถขยายให้ครอบคลุม type ย่อยหรือเวอร์ชันเฉพาะของเมธอดได้
+
+### 46.1 String
+
+| Method (signature)                                            |                    Params | Return     | คำอธิบาย / คุณสมบัติ                                                      |
+| ------------------------------------------------------------- | ------------------------: | ---------- | -------------------------------------------------------------------- |
+| `len(self)`                                                   |                         — | `Int`      | คืนความยาวของสตริง (O(1) ถ้าเก็บ utf/length cache, O(n) ถ้าเป็น byte-scan) |
+| `toUpper(self)`                                               |                         — | `String`   | คืนสตริงตัวพิมพ์ใหญ่ (unicode-aware)                                       |
+| `toLower(self)`                                               |                         — | `String`   | คืนสตริงตัวพิมพ์เล็ก (unicode-aware)                                       |
+| `slice(self, start: Int, end: Int?)`                          | `start`, `end` (optional) | `String`   | slice แบบ half-open `[start, end)` รองรับ negative index              |
+| `split(self, sep: String = " ")`                              |                     `sep` | `[String]` | แยกเป็นลิสต์ (lazy iterator variant available `.splitIter()` )          |
+| `replace(self, from: String, to: String, count: Int? = None)` |     `from`, `to`, `count` | `String`   | แทนที่ occurrences (count=null => replace all)                         |
+| `startsWith(self, prefix: String)`                            |                  `prefix` | `Bool`     | ตรวจ prefix (O(                                                      | prefix | )) |
+| `contains(self, sub: String)`                                 |                     `sub` | `Bool`     | ตรวจ substring (algorithm: fast search / KMP fallback)               |
+| `format(self, args: ...)`                                     |                  variadic | `String`   | string interpolation / printf-like helper                            |
+| `toInt(self) -> Result<Int,String>`                           |                         — | `Result`   | พยายาม parse เป็น Int, เก็บ error message ถ้า fail                      |
+
+**ตัวอย่าง**
+```nx
+let s = "Hello, Noisia"
+println(s.len())           // 12 (depends on encoding)
+println(s.split(",").map(trim))
+```
+
+---
+
+### 46.2 List / Array (`[T]`)
+
+| Method (signature)                          |              Params | Return     | คำอธิบาย / คุณสมบัติ                                         |
+| ------------------------------------------- | ------------------: | ---------- | ------------------------------------------------------- |
+| `append(&self, item: T)`                    |              `item` | `Void`     | เพิ่มท้ายลิสต์ (mutable) amortized O(1)                      |
+| `pop(&self) -> T?`                          |                   — | `T?`       | เอาตัวท้ายออก คืน optional ถ้าว่าง                           |
+| `insert(&self, index: Int, item: T)`        |     `index`, `item` | `Void`     | แทรกที่ตำแหน่ง (O(n))                                       |
+| `remove(&self, index: Int) -> T`            |             `index` | `T`        | เอา element ออก (shifts)                                |
+| `map(self, f: (T) -> U) -> [U]`             |                 `f` | `[U]`      | functional map (eager) — `.mapIter()` สำหรับ lazy         |
+| `filter(self, f: (T) -> Bool) -> [T]`       |                 `f` | `[T]`      | filter, preserve order                                  |
+| `enumerate(self) -> Iterator<(Int,T)>`      |                   — | `Iterator` | ให้ index + value pair                                   |
+| `sort(&self, cmp: ((T,T)->Int)? = None)`    | optional comparator | `Void`     | in-place sort, stable by default (T: Ord or custom cmp) |
+| `slice(self, start: Int, end: Int?) -> [T]` |      `start`, `end` | `[T]`      | slice copy or view (configurable)                       |
+| `find(self, predicate) -> Int?`             |         `predicate` | `Int?`     | คืน index แรกที่ match                                     |
+
+**ตัวอย่าง**
+```nx
+let nums = [5,1,3]
+nums.sort()
+let doubled = nums.map(\x :> x*2)
+```
+
+---
+
+### 46.3 Map / Dict (`[K:V]`)
+
+| Method (signature)                                                     |              Params | Return     | คำอธิบาย / คุณสมบัติ         |
+| ---------------------------------------------------------------------- | ------------------: | ---------- | ----------------------- |
+| `get(self, key: K) -> V?`                                              |               `key` | `V?`       | คืน optional value       |
+| `set(&self, key: K, value: V)`                                         |      `key`, `value` | `Void`     | ตั้งค่าที่ key               |
+| `has(self, key: K) -> Bool`                                            |               `key` | `Bool`     | ตรวจ key อยู่หรือไม่        |
+| `remove(&self, key: K) -> V?`                                          |               `key` | `V?`       | เอาออกและคืนค่าเก่า        |
+| `keys(self) -> Iterator<K>`                                            |                   — | `Iterator` | iterator ของ keys       |
+| `values(self) -> Iterator<V>`                                          |                   — | `Iterator` | iterator ของ values     |
+| `merge(&self, other: Map<K,V>, strategy: MergeStrategy = "overwrite")` | `other`, `strategy` | `Void`     | รวม maps (configurable) |
+
+---
+
+### 46.4 Option / Maybe (`Option<T>`)
+
+| Method (signature)                              |    Params | Return      | คำอธิบาย / คุณสมบัติ                                            |
+| ----------------------------------------------- | --------: | ----------- | ---------------------------------------------------------- |
+| `isSome(self)`                                  |         — | `Bool`      | true ถ้ามีค่า                                                 |
+| `isNone(self)`                                  |         — | `Bool`      | true ถ้าไม่มีค่า                                               |
+| `unwrap(self) -> T`                             |         — | `T`         | คืนค่า ถ้า None จะ `panic` (มี `unwrapOr(default)` เป็นทางเลือก) |
+| `unwrapOr(self, default: T) -> T`               | `default` | `T`         | คืนค่า default ถ้า None                                       |
+| `map(self, f: (T)->U) -> Option<U>`             |       `f` | `Option<U>` | แปลงค่าเมื่อมี                                                 |
+| `andThen(self, f: (T)->Option<U>) -> Option<U>` |       `f` | `Option<U>` | chain แบบ monadic                                          |
+
+---
+
+### 46.5 Result / Either (`Result<T,E>`)
+
+| Method (signature)                        | Params | Return        | คำอธิบาย / คุณสมบัติ              |
+| ----------------------------------------- | -----: | ------------- | ---------------------------- |
+| `isOk(self)` / `isErr(self)`              |      — | `Bool`        | ตรวจสถานะ                    |
+| `unwrap(self) -> T`                       |      — | `T`           | คืน Ok value หรือ panic ถ้า Err |
+| `unwrapErr(self) -> E`                    |      — | `E`           | คืน Err value                 |
+| `map(self, f: \(T)->U) -> Result<U,E>`    |    `f` | `Result<U,E>` | แปลง Ok value                |
+| `mapErr(self, f: \(E)->F) -> Result<T,F>` |    `f` | `Result<T,F>` | แปลง Err value               |
+| `andThen(self, f: \(T)->Result<U,E>)`     |    `f` | `Result<U,E>` | chain แบบ fallible           |
+
+---
+
+### 46.6 Numeric Types (`Int`, `Float`)
+
+| Method (signature)                |     Params | Return   | คำอธิบาย / คุณสมบัติ                     |
+| --------------------------------- | ---------: | -------- | ----------------------------------- |
+| `abs(self)`                       |          — | same     | ค่าสัมบูรณ์                             |
+| `clamp(self, lo: Self, hi: Self)` | `lo`, `hi` | `Self`   | clamp value ระหว่าง bounds           |
+| `toString(self)`                  |          — | `String` | แปลงเป็นสตริง                         |
+| `pow(self, exp: Int)`             |      `exp` | `Self`   | ยกกำลัง                               |
+| `sqrt(self)` (Float)              |          — | `Float`  | square root (NaN handling ตาม IEEE) |
+
+---
+
+### 46.7 Bool
+
+| Method           | Params | Return   | Notes                                       |
+| ---------------- | -----: | -------- | ------------------------------------------- |
+| `toggle(&self)`  |      — | `Void`   | เปลี่ยน true <-> false (สำหรับ mutable binding) |
+| `toString(self)` |      — | `String` | "true" / "false"                            |
+
+---
+
+### 46.8 Pointer types (managed `@T`, raw `~T`, shared `+T`, weak `&T`)
+
+| Method (signature)           | Params | Return            | คำอธิบาย / คุณสมบัติ                             |
+| ---------------------------- | -----: | ----------------- | ------------------------------------------- |
+| `get(self) -> T` (for `@T`)  |      — | `T`               | คืนค่าที่ชี้ (อาจ clone/borrow ขึ้นกับ policy)       |
+| `->` / `->?` syntactic deref |      — | `T` / `Option<T>` | `ptr->` deref ปกติ, `ptr->?` คืน None ถ้า dead |
+| `release(&self)`             |      — | `Void`            | ปลด resource (managed pointers)             |
+| `downgrade(self) -> &T`      |      — | `&T`              | สร้าง weak reference                         |
+| `alive?(self) -> Bool`       |      — | `Bool`            | ตรวจว่า pointer ยัง valid                     |
+
+**ตัวอย่าง**
+```nx
+let p = @new(42)
+println(p->)       // deref
+if p.alive? { /* safe */ }
+```
+
+---
+
+### 46.9 File / IO (`FileHandle`, `IO::File`)
+
+| Method (signature)                                                   |         Params | Return   | คำอธิบาย / คุณสมบัติ                    |
+| -------------------------------------------------------------------- | -------------: | -------- | ---------------------------------- |
+| `open(path: String, mode: String = "r") -> Result<FileHandle,Error>` | `path`, `mode` | `Result` | เปิดไฟล์ (throws/Result)             |
+| `readAll(&self) -> Result<String, Error>`                            |              — | `Result` | อ่านทั้งไฟล์ (อาจ streaming variant)   |
+| `read(&self, bufSize: Int) -> Result<String, Error>`                 |      `bufSize` | `Result` | อ่านเป็นชิ้น ๆ                         |
+| `write(&self, data: String) -> Result<Int, Error>`                   |         `data` | `Result` | เขียนกลับ คืนจำนวนไบต์                  |
+| `close(&self)`                                                       |              — | `Void`   | ปิด handle (defer / RAII supported) |
+
+---
+
+### 46.10 DateTime / Temporal (`DateTime`, `Duration`)
+
+| Method                                    |  Params | Return     | Notes                  |
+| ----------------------------------------- | ------: | ---------- | ---------------------- |
+| `now()` (static)                          |       — | `DateTime` | เวลาปัจจุบัน              |
+| `add(self, dur: Duration) -> DateTime`    |   `dur` | `DateTime` | บวกเวลา                |
+| `diff(self, other: DateTime) -> Duration` | `other` | `Duration` | หาความต่าง              |
+| `format(self, fmt: String) -> String`     |   `fmt` | `String`   | รูปแบบแบบ strftime-like |
+
+---
+
+### 46.11 Iterator / Generator
+
+| Method                  | Params | Return     | Notes              |
+| ----------------------- | -----: | ---------- | ------------------ |
+| `next(&mut self) -> T?` |      — | `T?`       | คืนค่า next หรือ None |
+| `collect(self) -> [T]`  |      — | `[T]`      | เก็บทุกค่าเป็นลิสต์      |
+| `map(self, f)`          |    `f` | `Iterator` | lazy map           |
+| `filter(self, f)`       |    `f` | `Iterator` | lazy filter        |
+
+---
+
+### 46.12 Future / Task / Promise
+
+| Method          | Params | Return       | Notes                         |
+| --------------- | -----: | ------------ | ----------------------------- |
+| `await(task)`   |      — | `T`          | รอผลลัพธ์ของ async task         |
+| `spawn(task)`   |      — | `TaskHandle` | สร้าง background task          |
+| `then(task, f)` |    `f` | `Future`     | chain callback (non-blocking) |
+| `cancel(&self)` |      — | `Void`       | ยกเลิก task ถ้า supported       |
 
 ---
 

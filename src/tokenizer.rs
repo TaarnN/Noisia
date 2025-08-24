@@ -184,6 +184,8 @@ impl Tokenizer {
             "abstract",
             "override",
             // Advanced keywords & attributes
+            "subtype",
+            "of",
             "macro",
             "extension",
             "mixin",
@@ -262,6 +264,7 @@ impl Tokenizer {
             "followed_by",
             "ending",
             "is",
+            "lifetime"
         ];
 
         for keyword in keywords.iter().copied() {

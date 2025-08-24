@@ -3,10 +3,7 @@ mod parser;
 
 fn main() {
     let code = "
-@entry
-fn main() {
-    let a = 5
-}";
+fn greet() -> Void !Network {}";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);
     let tokens = tokenizer.tokenize();

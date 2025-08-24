@@ -71,17 +71,67 @@ pub struct ImportDecl {
 
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
+    pub attributes: Vec<String>,
+    pub visibility: Visibility,
+    pub modifiers: Vec<FunctionModifier>,
     pub name: String,
+    pub is_async: bool,
+    pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub ret_type: Option<TypeRef>,
+    pub effects: Vec<Effect>,
+    pub where_clauses: Vec<WhereClause>,
     pub body: Option<Block>,
-    pub is_async: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct GenericParam {
+    pub name: String,
+    pub constraints: Vec<TypeConstraint>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeConstraint {
+    TraitBound(String),
+    LifetimeBound(String),
+    TypeEq(String, String),
+    SubtypeOf(String),
+    SupertypeOf(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct WhereClause {
+    pub param_name: String,
+    pub constraints: Vec<TypeConstraint>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Effect {
+    pub name: String,
+    pub params: Option<Vec<TypeRef>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Visibility {
+    Public,
+    Private,
+    Protected,
+    Internal,
+    Package,
+}
+
+#[derive(Debug, Clone)]
+pub enum FunctionModifier {
+    Async,
+    Multidispatch,
+    // Add other modifiers as needed
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub typ: Option<TypeRef>,
+    pub default: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,29 +163,22 @@ pub struct ImplDecl {
 #[derive(Debug, Clone)]
 pub struct ClassDecl {
     pub name: String,
-    pub fields: Vec<FieldDecl>,
+    pub fields: Vec<ClassFieldDecl>,
     pub constructors: Vec<ConstructorDecl>,
     pub methods: Vec<FunctionDecl>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Visibility {
-    Public,
-    Private,
-    Protected,
-    Default,
-}
-
 #[derive(Debug, Clone)]
-pub struct FieldDecl {
-    pub vis: Visibility, // public / private / protected (optional)
+pub struct ClassFieldDecl {
+    pub vis: Visibility,
     pub name: String,
     pub typ: TypeRef,
+    pub value: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConstructorDecl {
-    pub name: Option<String>, // None = primary constructor ("init"), Some("withName") = secondary
+    pub name: Option<String>,
     pub params: Vec<Param>,
     pub body: Block,
 }
@@ -155,6 +198,8 @@ pub enum Stmt {
     },
     Expr(Expr),
     Return(Option<Expr>),
+    Continue,
+    Break,
     If {
         cond: Expr,
         then_block: Block,
@@ -324,10 +369,10 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> ParseResult<Item> {
+        let kw = self.peek().lexeme.clone();
         match &self.peek().token_type {
             TokenType::Keyword => {
                 // Need to inspect lexeme to decide which keyword it is
-                let kw = self.peek().lexeme.clone();
                 match kw.as_str() {
                     "module" => {
                         self.advance();
@@ -370,28 +415,9 @@ impl Parser {
                     }
                 }
             }
-            _ => {
-                // Could be an expression at top-level (e.g., module-less script)
-                let stmt = self.parse_statement()?;
-                // For now we ignore expression-only top-levels (or could wrap into a `main` implicit)
-                match stmt {
-                    Stmt::Expr(expr) => {
-                        ///////////////  // ignore
-                        Ok(Item::Function(FunctionDecl {
-                            name: "<__anon__>".into(),
-                            params: vec![],
-                            ret_type: None,
-                            body: Some(Block {
-                                stmts: vec![Stmt::Expr(expr)],
-                            }),
-                            is_async: false,
-                        }))
-                    }
-                    _ => Err(ParseError::Generic(
-                        "Unsupported top-level statement".into(),
-                    )),
-                }
-            }
+            _ => Err(ParseError::Generic(String::from(
+                "Unsupported module-only scripts",
+            ))),
         }
     }
 
@@ -450,22 +476,48 @@ impl Parser {
     }
 
     fn parse_function(&mut self) -> ParseResult<FunctionDecl> {
-        // Accept "fn" or "async fn"
+        let mut attributes = Vec::new();
+        let mut visibility = Visibility::Public; // Default visibility
+        let mut modifiers = Vec::new();
+
+        // Parse attributes
+        while self.peek().token_type == TokenType::Attribute {
+            attributes.push(self.advance().lexeme.clone());
+        }
+
+        // Parse visibility modifier
+        if self.match_tnv(TokenType::Keyword, "pub") {
+            visibility = Visibility::Public;
+        } else if self.match_tnv(TokenType::Keyword, "private") {
+            visibility = Visibility::Private;
+        }
+        // Add other visibility modifiers...
+
+        // Parse async modifier
         let mut is_async = false;
-        if self.peek().lexeme == "async" {
+        if self.match_tnv(TokenType::Keyword, "async") {
+            modifiers.push(FunctionModifier::Async);
             is_async = true;
-            self.advance(); // consume async
         }
 
-        // expect fn
+        // Parse function keyword (check for multidispatch)
         let fn_tok = self.expect(TokenType::Keyword)?;
-        if fn_tok.lexeme != "fn" {
-            return Err(ParseError::Generic("Expected 'fn' keyword".into()));
+        if fn_tok.lexeme == "fn+" {
+            modifiers.push(FunctionModifier::Multidispatch);
+        } else if fn_tok.lexeme != "fn" {
+            return Err(ParseError::Generic("Expected 'fn' or 'fn+' keyword".into()));
         }
 
-        // name
+        // Parse function name
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
+
+        // Parse generics
+        let generics = if self.match_tnv(TokenType::Operator, "<") {
+            self.parse_generics()?
+        } else {
+            Vec::new()
+        };
 
         // params
         self.expect(TokenType::LeftParen)?;
@@ -474,12 +526,17 @@ impl Parser {
             let param_name_tok = self.expect(TokenType::Identifier)?;
             let param_name = param_name_tok.lexeme.clone();
             let mut typ = None;
+            let mut default = None;
             if self.match_one(TokenType::Colon) {
                 typ = Some(self.parse_type()?);
+            }
+            if self.match_tnv(TokenType::Operator, "=") {
+                default = Some(self.parse_expression(0).unwrap());
             }
             params.push(Param {
                 name: param_name,
                 typ,
+                default,
             });
             if self.match_one(TokenType::Comma) {
                 continue;
@@ -489,26 +546,31 @@ impl Parser {
         }
         self.expect(TokenType::RightParen)?;
 
-        // return type: only treat FatArrow (->) as return-type marker
+        // Parse return type
         let mut ret_type = None;
         if self.match_one(TokenType::FatArrow) {
             ret_type = Some(self.parse_type()?);
         }
 
-        // body:
-        // - if ShortArrow (':>') => expression body, wrap into Block with a Return or Expr stmt
-        // - else if LeftBrace => full block
-        // - else => no body (declaration only)
+        // Parse effects
+        let effects = if self.match_one(TokenType::EffectMarker) {
+            self.parse_effects()?
+        } else {
+            Vec::new()
+        };
+
+        // Parse where clauses
+        let where_clauses = if self.match_tnv(TokenType::Keyword, "where") {
+            self.parse_where_clauses()?
+        } else {
+            Vec::new()
+        };
+
+        // Parse body
         let body = if self.match_one(TokenType::ShortArrow) {
-            // expression-bodied function: parse a single expression as the body
-            let expr = self.parse_expression(0)?;
-            // optional semicolon after expression-body (allow both)
-            if self.peek().token_type == TokenType::Semicolon {
-                self.advance();
-            }
-            // wrap as a return stmt so downstream phases treat it uniformly
+            self.advance();
             Some(Block {
-                stmts: vec![Stmt::Return(Some(expr))],
+                stmts: vec![Stmt::Return(Some(self.parse_expression(0).unwrap()))],
             })
         } else if self.peek().token_type == TokenType::LeftBrace {
             Some(self.parse_block()?)
@@ -517,12 +579,156 @@ impl Parser {
         };
 
         Ok(FunctionDecl {
+            attributes,
+            visibility,
+            modifiers,
             name,
+            generics,
             params,
             ret_type,
+            effects,
+            where_clauses,
             body,
             is_async,
         })
+    }
+
+    fn parse_generics(&mut self) -> ParseResult<Vec<GenericParam>> {
+        let mut generics = Vec::new();
+
+        while !self.is_at_end() && !self.match_tnv(TokenType::Operator, ">") {
+            let name_tok = self.expect(TokenType::Identifier)?;
+            let mut constraints = Vec::new();
+
+            if self.match_one(TokenType::Colon) {
+                constraints = self.parse_type_constraints()?;
+            }
+
+            generics.push(GenericParam {
+                name: name_tok.lexeme,
+                constraints,
+            });
+
+            if self.match_one(TokenType::Comma) {
+                continue;
+            }
+        }
+
+        Ok(generics)
+    }
+
+    fn parse_effects(&mut self) -> ParseResult<Vec<Effect>> {
+        let mut effects = Vec::new();
+
+        while self.peek().token_type == TokenType::Identifier {
+            let name_tok = self.expect(TokenType::Identifier)?;
+            let mut params = None;
+
+            if self.match_one(TokenType::LeftParen) {
+                params = Some(self.parse_effect_params()?);
+                self.expect(TokenType::RightParen)?;
+            }
+
+            effects.push(Effect {
+                name: name_tok.lexeme,
+                params,
+            });
+
+            if !self.match_one(TokenType::EffectMarker) {
+                break;
+            }
+        }
+
+        Ok(effects)
+    }
+
+    fn parse_type_constraints(&mut self) -> ParseResult<Vec<TypeConstraint>> {
+        let mut constraints = Vec::new();
+
+        while !self.is_at_end() {
+            let tok = self.peek().clone();
+            
+            match tok.token_type {
+                TokenType::Identifier => {
+                    let ident = self.advance().lexeme.clone();
+                    
+                    // Check for trait bounds or other constraints
+                    if self.match_tnv(TokenType::Operator, "=") {
+                        // Type equality constraint: T = Type
+                        let type_ref = self.parse_type()?;
+                        constraints.push(TypeConstraint::TypeEq(ident, type_ref.name));
+                    } else if self.match_one(TokenType::Colon) {
+                        // Trait bound: T: Trait
+                        let trait_name = self.expect(TokenType::Identifier)?.lexeme;
+                        constraints.push(TypeConstraint::TraitBound(format!("{}:{}", ident, trait_name)));
+                    } else if self.match_tnv(TokenType::Keyword, "subtype") {
+                        // Subtype constraint: T subtype of U
+                        self.expect(TokenType::Keyword)?; // "of"
+                        let supertype = self.parse_type()?;
+                        constraints.push(TypeConstraint::SubtypeOf(supertype.name));
+                    } else {
+                        // Simple trait bound
+                        constraints.push(TypeConstraint::TraitBound(ident));
+                    }
+                }
+                TokenType::Keyword if tok.lexeme == "lifetime" => {
+                    // Lifetime bound: 'a
+                    self.advance();
+                    let lifetime = self.expect(TokenType::Identifier)?.lexeme;
+                    constraints.push(TypeConstraint::LifetimeBound(lifetime));
+                }
+                _ => break,
+            }
+
+            // Check for additional constraints
+            if !self.match_tnv(TokenType::Operator, "+") {
+                break;
+            }
+        }
+
+        Ok(constraints)
+    }
+
+    fn parse_effect_params(&mut self) -> ParseResult<Vec<TypeRef>> {
+        let mut params = Vec::new();
+
+        while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+            let type_ref = self.parse_type()?;
+            params.push(type_ref);
+
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        Ok(params)
+    }
+
+    fn parse_where_clauses(&mut self) -> ParseResult<Vec<WhereClause>> {
+        let mut clauses = Vec::new();
+
+        while self.peek().token_type != TokenType::LeftBrace
+            && self.peek().token_type != TokenType::ShortArrow
+        {
+            let param_tok = self.expect(TokenType::Identifier)?;
+            self.expect(TokenType::Colon)?;
+            let constraints = self.parse_type_constraints()?;
+
+            clauses.push(WhereClause {
+                param_name: param_tok.lexeme,
+                constraints,
+            });
+
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        Ok(clauses)
     }
 
     fn parse_struct(&mut self) -> ParseResult<StructDecl> {
@@ -789,12 +995,10 @@ impl Parser {
         let mut name = String::new();
         let mut generics = Vec::new();
         let mut nullable = false;
-        let mut pointer = false;
         let mut pointer_type = None;
 
         let mut tok = self.peek().clone();
         if tok.token_type == TokenType::Operator {
-            pointer = true;
             pointer_type = match tok.lexeme.as_str() {
                 "~" => Some(PointerType::RawPointer),
                 "@" => Some(PointerType::ManagedPointer),
