@@ -264,6 +264,25 @@ pub enum PointerType {
 }
 
 //
+// fmt::Display
+//
+
+impl fmt::Display for Item {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Item::ModuleDecl(inner) => write!(f, "{:#?}", inner),
+            Item::Import(inner) => write!(f, "{:#?}", inner),
+            Item::Function(inner) => write!(f, "{:#?}", inner),
+            Item::Struct(inner) => write!(f, "{:#?}", inner),
+            Item::Enum(inner) => write!(f, "{:#?}", inner),
+            Item::Trait(inner) => write!(f, "{:#?}", inner),
+            Item::Impl(inner) => write!(f, "{:#?}", inner),
+            Item::Class(inner) => write!(f, "{:#?}", inner),
+        }
+    }
+}
+
+//
 // Parser
 //
 pub struct Parser {
@@ -352,10 +371,7 @@ impl Parser {
         while !self.is_at_end() {
             // skip newlines/comments tokens if tokenizer emits them as tokens
             match self.peek().token_type {
-                TokenType::NewLine
-                | TokenType::LineComment
-                | TokenType::BlockComment
-                | TokenType::DocComment => {
+                TokenType::LineComment | TokenType::BlockComment | TokenType::DocComment => {
                     self.advance();
                     continue;
                 }
@@ -415,9 +431,14 @@ impl Parser {
                     }
                 }
             }
-            _ => Err(ParseError::Generic(String::from(
-                "Unsupported module-only scripts",
-            ))),
+            TokenType::Attribute => {
+                let func = self.parse_function()?;
+                Ok(Item::Function(func))
+            }
+            _ => Err(ParseError::Generic(String::from(format!(
+                "Unsupported module-only scripts, founded {}",
+                &self.peek()
+            )))),
         }
     }
 
@@ -647,11 +668,11 @@ impl Parser {
 
         while !self.is_at_end() {
             let tok = self.peek().clone();
-            
+
             match tok.token_type {
                 TokenType::Identifier => {
                     let ident = self.advance().lexeme.clone();
-                    
+
                     // Check for trait bounds or other constraints
                     if self.match_tnv(TokenType::Operator, "=") {
                         // Type equality constraint: T = Type
@@ -660,7 +681,10 @@ impl Parser {
                     } else if self.match_one(TokenType::Colon) {
                         // Trait bound: T: Trait
                         let trait_name = self.expect(TokenType::Identifier)?.lexeme;
-                        constraints.push(TypeConstraint::TraitBound(format!("{}:{}", ident, trait_name)));
+                        constraints.push(TypeConstraint::TraitBound(format!(
+                            "{}:{}",
+                            ident, trait_name
+                        )));
                     } else if self.match_tnv(TokenType::Keyword, "subtype") {
                         // Subtype constraint: T subtype of U
                         self.expect(TokenType::Keyword)?; // "of"
@@ -778,10 +802,7 @@ impl Parser {
         while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
             // skip newline/comments tokens
             match self.peek().token_type {
-                TokenType::NewLine
-                | TokenType::LineComment
-                | TokenType::BlockComment
-                | TokenType::DocComment => {
+                TokenType::LineComment | TokenType::BlockComment | TokenType::DocComment => {
                     self.advance();
                     continue;
                 }
@@ -798,12 +819,11 @@ impl Parser {
         // handle let/return/if/loop/while/for or expression
         match self.peek().lexeme.as_str() {
             "let" => {
+                self.advance();
                 let mutable = (!self.is_at_end() && self.match_tnv(TokenType::Operator, "~"))
-                    .then(|| {
-                        self.advance();
-                        true
-                    })
+                    .then(|| true)
                     .unwrap_or(false);
+
                 let name_tok = self.expect(TokenType::Identifier)?;
                 let name = name_tok.lexeme.clone();
                 let mut typ = None;

@@ -62,10 +62,6 @@ pub enum TokenType {
     UnterminatedString,
     UnterminatedComment,
     InvalidUnit,
-
-    // New line
-    NewLine,
-
     // End of file
     EOF,
 }
@@ -92,7 +88,6 @@ impl Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.token_type {
-            TokenType::NewLine => write!(f, "< \\n >"),
             _ => write!(
                 f,
                 "{:?}('{}') at {}:{}",
@@ -264,7 +259,7 @@ impl Tokenizer {
             "followed_by",
             "ending",
             "is",
-            "lifetime"
+            "lifetime",
         ];
 
         for keyword in keywords.iter().copied() {
@@ -430,13 +425,25 @@ impl Tokenizer {
         }
 
         // Handle effect markers
-        if self.peek() == '!' && self.peek_next().is_alphabetic() {
+        if self.peek() == '!' && (self.peek_next().is_alphabetic() || self.peek_next() == '_') {
             return Some(self.effect_marker());
         }
 
-        // Handle attributes
+        // Handle attributes: only when '@' is followed by a lowercase letter.
+        // Otherwise treat '@' as a standalone Operator token and let the next Ident be tokenized separately.
         if self.peek() == '@' {
-            return Some(self.attribute());
+            if self.peek_next().is_ascii_lowercase() {
+                return Some(self.attribute());
+            } else {
+                // consume '@' and return it as an Operator token
+                let ch = self.advance();
+                return Some(Token::new(
+                    TokenType::Operator,
+                    ch.to_string(),
+                    start_line,
+                    start_column,
+                ));
+            }
         }
 
         // Handle operators (check multi-character first)
@@ -461,11 +468,6 @@ impl Tokenizer {
             '$' => TokenType::Dollar,
             '`' => TokenType::Backtick,
             '|' => TokenType::Pipe,
-            '\n' => {
-                self.line += 1;
-                self.column = 1;
-                TokenType::NewLine
-            }
             _ => return None,
         };
 
@@ -846,7 +848,7 @@ impl Tokenizer {
     fn skip_whitespace(&mut self) {
         while !self.is_at_end() {
             match self.peek() {
-                ' ' | '\r' | '\t' => {
+                ' ' | '\r' | '\t' | '\n' => {
                     self.advance();
                 }
                 _ => break,
