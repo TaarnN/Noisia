@@ -3,13 +3,12 @@ mod tokenizer;
 
 fn main() {
     let code = "
+module App::Hello
+
 @entry
-fn main(a: ~Int) {
-    
-    if 1 < 2 {
-        let~ a: Int? = 5
-        println(a)
-    }
+fn main() -> Int {
+    println((\"Hello, Noisia!\") + (1+2).toString().ext(11,2))
+    return 0
 }";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);

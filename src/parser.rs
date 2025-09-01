@@ -235,6 +235,19 @@ pub enum Expr {
         args: Vec<Expr>,
     },
     Grouping(Box<Expr>),
+    MethodCall {
+        object: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
+    Index {
+        array: Box<Expr>,
+        index: Box<Expr>,
+    },
     // more: lambda, match, pipeline, pointer ops, etc.
 }
 
@@ -933,11 +946,12 @@ impl Parser {
         Ok(left)
     }
 
+    // Update parse_unary_or_primary to include postfix parsing
     fn parse_unary_or_primary(&mut self) -> ParseResult<Expr> {
-        // unary operators: `-`, `!`, `not`
+        // Handle unary operators first
         let tok = self.peek().clone();
         if matches!(tok.token_type, TokenType::Operator) {
-            if tok.lexeme == "-" || tok.lexeme == "+" {
+            if tok.lexeme == "-" || tok.lexeme == "+" || tok.lexeme == "!" || tok.lexeme == "not" {
                 let op = self.advance().lexeme.clone();
                 let rhs = self.parse_expression(100)?; // high prec for unary
                 return Ok(Expr::Unary {
@@ -947,8 +961,9 @@ impl Parser {
             }
         }
 
-        // primary expressions
-        self.parse_primary()
+        // Parse primary expression and then apply postfix operations
+        let primary = self.parse_primary()?;
+        self.parse_postfix(primary)
     }
 
     fn parse_primary(&mut self) -> ParseResult<Expr> {
@@ -975,27 +990,7 @@ impl Parser {
             }
             TokenType::Identifier | TokenType::ModulePath => {
                 self.advance();
-                let mut expr = Expr::Ident(tok.lexeme.clone());
-                // call detection: if next is '(' => function call
-                if self.peek().token_type == TokenType::LeftParen {
-                    self.advance(); // consume '('
-                    let mut args = Vec::new();
-                    while self.peek().token_type != TokenType::RightParen {
-                        let a = self.parse_expression(0)?;
-                        args.push(a);
-                        if self.match_one(TokenType::Comma) {
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                    self.expect(TokenType::RightParen)?;
-                    expr = Expr::Call {
-                        callee: Box::new(expr),
-                        args,
-                    };
-                }
-                Ok(expr)
+                Ok(Expr::Ident(tok.lexeme.clone()))
             }
             TokenType::LeftParen => {
                 self.advance();
@@ -1009,6 +1004,73 @@ impl Parser {
                 idx: self.idx,
             }),
         }
+    }
+
+    fn parse_postfix(&mut self, left: Expr) -> ParseResult<Expr> {
+        let mut expr = left;
+        loop {
+            match self.peek().token_type {
+                TokenType::Dot => {
+                    self.advance(); // consume '.'
+                    let method_name = self.expect(TokenType::Identifier)?;
+
+                    if self.peek().token_type == TokenType::LeftParen {
+                        // Method call
+                        self.advance(); // consume '('
+                        let args = self.parse_arguments()?;
+                        self.expect(TokenType::RightParen)?;
+                        expr = Expr::MethodCall {
+                            object: Box::new(expr),
+                            method: method_name.lexeme,
+                            args,
+                        };
+                    } else {
+                        // Field access
+                        expr = Expr::FieldAccess {
+                            object: Box::new(expr),
+                            field: method_name.lexeme,
+                        };
+                    }
+                }
+                TokenType::LeftBracket => {
+                    // Index access
+                    self.advance(); // consume '['
+                    let index_expr = self.parse_expression(0)?;
+                    self.expect(TokenType::RightBracket)?;
+                    expr = Expr::Index {
+                        array: Box::new(expr),
+                        index: Box::new(index_expr),
+                    };
+                }
+                TokenType::LeftParen => {
+                    // Function call
+                    self.advance(); // consume '('
+                    let args = self.parse_arguments()?;
+                    self.expect(TokenType::RightParen)?;
+                    expr = Expr::Call {
+                        callee: Box::new(expr),
+                        args,
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    // Add parse_arguments function
+    fn parse_arguments(&mut self) -> ParseResult<Vec<Expr>> {
+        let mut args = Vec::new();
+        while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+            let arg = self.parse_expression(0)?;
+            args.push(arg);
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
+        Ok(args)
     }
 
     fn parse_type(&mut self) -> ParseResult<TypeRef> {
