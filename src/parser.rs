@@ -214,7 +214,80 @@ pub enum Stmt {
         iter: Expr,
         body: Block,
     },
+    Match {
+        expr: Expr,
+        arms: Vec<MatchArm>,
+    },
+    IfLet {
+        pattern: Pattern,
+        expr: Expr,
+        then_block: Block,
+        else_block: Option<Block>,
+    },
+    Watch {
+        variables: Vec<Expr>,
+        clauses: Vec<WatchClause>,
+    },
+    Converge {
+        variable: String,
+        body: Block,
+        until: Expr,
+    },
+    Within {
+        time: Expr,
+        condition: Option<Expr>,
+        body: Block,
+    },
+    Atomically {
+        body: Block,
+    },
+    Trap {
+        error_condition: Expr,
+        body: Block,
+    },
+    Guard {
+        condition: Expr,
+        then_block: Block,
+        else_block: Option<Block>,
+    },
+    Poll {
+        signal: Expr,
+        interval: Expr,
+        body: Block,
+    },
     // ... add more statements
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Expr>,
+    pub body: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub bindings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PatternKind {
+    Identifier(String),
+    Wildcard,
+    Literal(Literal),
+    Struct {
+        name: String,
+        fields: Vec<(String, Pattern)>,
+    },
+    Tuple(Vec<Pattern>),
+    Or(Vec<Pattern>),
+}
+
+#[derive(Debug, Clone)]
+pub struct WatchClause {
+    pub condition: Expr,
+    pub body: Block,
 }
 
 #[derive(Debug, Clone)]
@@ -829,7 +902,6 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt> {
-        // handle let/return/if/loop/while/for or expression
         match self.peek().lexeme.as_str() {
             "let" => {
                 self.advance();
@@ -871,22 +943,6 @@ impl Parser {
                 }
                 Ok(Stmt::Return(expr))
             }
-            "if" => {
-                self.advance();
-                let cond = self.parse_expression(0)?;
-                let then_block = self.parse_block()?;
-                let else_block = if self.peek().lexeme == "else" {
-                    self.advance();
-                    Some(self.parse_block()?)
-                } else {
-                    None
-                };
-                Ok(Stmt::If {
-                    cond,
-                    then_block,
-                    else_block,
-                })
-            }
             "while" => {
                 self.advance();
                 let cond = self.parse_expression(0)?;
@@ -902,6 +958,35 @@ impl Parser {
                 let body = self.parse_block()?;
                 Ok(Stmt::For { pat, iter, body })
             }
+            "match" => self.parse_match_statement(),
+            "if" => {
+                let next_idx = self.idx + 1;
+                if next_idx < self.tokens.len() && self.tokens[next_idx].lexeme == "let" {
+                    self.parse_if_let_statement()
+                } else {
+                    self.advance();
+                    let cond = self.parse_expression(0)?;
+                    let then_block = self.parse_block()?;
+                    let else_block = if self.peek().lexeme == "else" {
+                        self.advance();
+                        Some(self.parse_block()?)
+                    } else {
+                        None
+                    };
+                    Ok(Stmt::If {
+                        cond,
+                        then_block,
+                        else_block,
+                    })
+                }
+            }
+            "watch" => self.parse_watch_statement(),
+            "converge" => self.parse_converge_statement(),
+            "within" => self.parse_within_statement(),
+            "atomically" => self.parse_atomically_statement(),
+            "trap" => self.parse_trap_statement(),
+            "guard" => self.parse_guard_statement(),
+            "poll" => self.parse_poll_statement(),
             _ => {
                 // expression statement
                 let expr = self.parse_expression(0)?;
@@ -1132,6 +1217,264 @@ impl Parser {
             generics,
             nullable,
             pointer_type,
+        })
+    }
+
+    fn parse_match_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'match'
+        let expr = self.parse_expression(0)?;
+        self.expect(TokenType::LeftBrace)?;
+
+        let mut arms = Vec::new();
+        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+            let pattern = self.parse_pattern()?;
+            let guard = if self.match_tnv(TokenType::Keyword, "if") {
+                Some(self.parse_expression(0)?)
+            } else {
+                None
+            };
+            self.expect(TokenType::ShortArrow)?;
+            let body = self.parse_expression(0)?;
+
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+            });
+        }
+
+        self.expect(TokenType::RightBrace)?;
+        Ok(Stmt::Match { expr, arms })
+    }
+
+    fn parse_if_let_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'if'
+        self.expect(TokenType::Keyword)?; // 'let'
+
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenType::Operator)?; // '='
+        let expr = self.parse_expression(0)?;
+
+        let then_block = self.parse_block()?;
+        let else_block = if self.match_tnv(TokenType::Keyword, "else") {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        Ok(Stmt::IfLet {
+            pattern,
+            expr,
+            then_block,
+            else_block,
+        })
+    }
+
+    fn parse_watch_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'watch'
+
+        let mut variables = Vec::new();
+        loop {
+            variables.push(self.parse_expression(0)?);
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenType::LeftBrace)?;
+
+        let mut clauses = Vec::new();
+        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+            self.expect(TokenType::Keyword)?; // 'when'
+            let condition = self.parse_expression(0)?;
+            self.expect(TokenType::ShortArrow)?;
+            let body = self.parse_block()?;
+
+            clauses.push(WatchClause { condition, body });
+        }
+
+        self.expect(TokenType::RightBrace)?;
+        Ok(Stmt::Watch { variables, clauses })
+    }
+
+    fn parse_converge_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'converge'
+        self.expect(TokenType::Keyword)?; // 'with'
+
+        let variable = self.expect(TokenType::Identifier)?.lexeme;
+
+        let body = self.parse_block()?;
+        self.expect(TokenType::Keyword)?; // 'until'
+        let until = self.parse_expression(0)?;
+
+        Ok(Stmt::Converge {
+            variable,
+            body,
+            until,
+        })
+    }
+
+    fn parse_within_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'within'
+        let time = self.parse_expression(0)?;
+
+        let condition = if self.match_tnv(TokenType::Keyword, "if") {
+            Some(self.parse_expression(0)?)
+        } else {
+            None
+        };
+
+        self.expect(TokenType::ShortArrow)?;
+        let body = self.parse_block()?;
+
+        Ok(Stmt::Within {
+            time,
+            condition,
+            body,
+        })
+    }
+
+    fn parse_atomically_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'atomically'
+        let body = self.parse_block()?;
+        Ok(Stmt::Atomically { body })
+    }
+
+    fn parse_trap_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'trap'
+        let error_condition = self.parse_expression(0)?;
+        self.expect(TokenType::ShortArrow)?;
+        let body = self.parse_block()?;
+        Ok(Stmt::Trap {
+            error_condition,
+            body,
+        })
+    }
+
+    fn parse_guard_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'guard'
+        let condition = self.parse_expression(0)?;
+        self.expect(TokenType::ShortArrow)?;
+        let then_block = self.parse_block()?;
+
+        let else_block = if self.match_tnv(TokenType::Keyword, "else") {
+            self.expect(TokenType::ShortArrow)?;
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        Ok(Stmt::Guard {
+            condition,
+            then_block,
+            else_block,
+        })
+    }
+
+    fn parse_poll_statement(&mut self) -> ParseResult<Stmt> {
+        self.expect(TokenType::Keyword)?; // 'poll'
+        let signal = self.parse_expression(0)?;
+        self.expect(TokenType::Keyword)?; // 'with'
+        self.expect(TokenType::Keyword)?; // 'interval'
+        self.expect(TokenType::Operator)?; // '='
+        let interval = self.parse_expression(0)?;
+        self.expect(TokenType::ShortArrow)?;
+        let body = self.parse_block()?;
+
+        Ok(Stmt::Poll {
+            signal,
+            interval,
+            body,
+        })
+    }
+
+    fn parse_pattern(&mut self) -> ParseResult<Pattern> {
+        let tok = self.peek().clone();
+        let mut bindings = Vec::new();
+        let kind = match tok.token_type {
+            TokenType::Identifier => {
+                let ident = self.advance().lexeme.clone();
+                if ident == "_" {
+                    PatternKind::Wildcard
+                } else if self.peek().token_type == TokenType::LeftBrace {
+                    // Struct pattern
+                    self.advance();
+                    let mut fields = Vec::new();
+                    while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+                        self.expect(TokenType::Colon)?;
+                        let field_pattern = self.parse_pattern()?;
+                        fields.push((field_name, field_pattern));
+
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBrace)?;
+                    PatternKind::Struct {
+                        name: ident,
+                        fields,
+                    }
+                } else if self.peek().token_type == TokenType::LeftParen {
+                    // Tuple pattern
+                    self.advance();
+                    let mut patterns = Vec::new();
+                    while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+                        patterns.push(self.parse_pattern()?);
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightParen)?;
+                    PatternKind::Tuple(patterns)
+                } else {
+                    // Simple identifier pattern
+                    bindings.push(ident.clone());
+                    PatternKind::Identifier(ident)
+                }
+            }
+            TokenType::IntLiteral
+            | TokenType::FloatLiteral
+            | TokenType::StringLiteral
+            | TokenType::BoolLiteral => {
+                let literal = match self.parse_primary()? {
+                    Expr::Literal(l) => l,
+                    _ => return Err(ParseError::Generic("Expected literal".into())),
+                };
+                PatternKind::Literal(literal)
+            }
+            _ => return Err(ParseError::Generic("Expected pattern".into())),
+        };
+
+        // Handle OR patterns (pattern1 | pattern2)
+        let mut patterns = vec![kind];
+        while self.match_tnv(TokenType::Operator, "|") {
+            patterns.push(self.parse_pattern()?.kind);
+        }
+
+        let final_kind = if patterns.len() == 1 {
+            patterns.remove(0)
+        } else {
+            PatternKind::Or(
+                patterns
+                    .into_iter()
+                    .map(|k| Pattern {
+                        kind: k,
+                        bindings: Vec::new(),
+                    })
+                    .collect(),
+            )
+        };
+
+        Ok(Pattern {
+            kind: final_kind,
+            bindings,
         })
     }
 }

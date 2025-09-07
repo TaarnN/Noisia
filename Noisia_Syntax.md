@@ -655,9 +655,9 @@ let result = data >> filter(\x :> x.active) >> map(\x :> x.value)
 
 ```nx
 match value {
-  Some(x)          :> handleSome(x),
-  None             :> handleNone(),
-  Error(code,msg)  :> handleError(code,msg),
+  Some(x)          :> handleSome(x)
+  None             :> handleNone()
+  Error(code,msg)  :> handleError(code,msg)
 }
 ```
 

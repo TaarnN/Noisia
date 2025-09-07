@@ -3,13 +3,14 @@ mod tokenizer;
 
 fn main() {
     let code = "
-module App::Hello
-
 @entry
 fn main() -> Int {
-    println((\"Hello, Noisia!\") + (1+2).toString().ext(11,2))
-    return 0
-}";
+    match 1 {
+        2 :> println(Hi)
+        _ :> println(Ngai)
+    }
+}
+";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);
     let tokens = tokenizer.tokenize();
