@@ -4,11 +4,8 @@ mod tokenizer;
 fn main() {
     let code = "
 @entry
-fn main() -> Int {
-    match 1 {
-        2 :> println(Hi)
-        _ :> println(Ngai)
-    }
+fn main() {
+    let~ x = 10
 }
 ";
 

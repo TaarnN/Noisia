@@ -163,14 +163,19 @@ pub struct ImplDecl {
 #[derive(Debug, Clone)]
 pub struct ClassDecl {
     pub name: String,
+    pub super_class: Option<TypeRef>,
+    pub implements: Vec<TypeRef>,
     pub fields: Vec<ClassFieldDecl>,
     pub constructors: Vec<ConstructorDecl>,
-    pub methods: Vec<FunctionDecl>,
+    pub methods: Vec<FunctionDecl>, // instance methods (with self)
+    pub static_methods: Vec<FunctionDecl>, // static methods (without self)
 }
 
 #[derive(Debug, Clone)]
 pub struct ClassFieldDecl {
+    pub attributes: Vec<String>,
     pub vis: Visibility,
+    pub mutable: bool,
     pub name: String,
     pub typ: TypeRef,
     pub value: Option<Expr>,
@@ -498,6 +503,11 @@ impl Parser {
                         let e = self.parse_enum()?;
                         Ok(Item::Enum(e))
                     }
+                    "class" => {
+                        self.advance();
+                        let class = self.parse_class()?;
+                        Ok(Item::Class(class))
+                    }
                     _ => {
                         // fallback: treat as expression stmt or error
                         let stmt = self.parse_statement()?;
@@ -593,7 +603,7 @@ impl Parser {
         }
 
         // Parse visibility modifier
-        if self.match_tnv(TokenType::Keyword, "pub") {
+        if self.match_tnv(TokenType::Keyword, "public") {
             visibility = Visibility::Public;
         } else if self.match_tnv(TokenType::Keyword, "private") {
             visibility = Visibility::Private;
@@ -839,6 +849,115 @@ impl Parser {
         }
 
         Ok(clauses)
+    }
+
+    fn parse_class(&mut self) -> ParseResult<ClassDecl> {
+        let name_tok = self.expect(TokenType::Identifier)?;
+        let name = name_tok.lexeme;
+
+        let mut super_class = None;
+        if self.match_tnv(TokenType::Keyword, "extends") {
+            super_class = Some(self.parse_type()?);
+        }
+
+        let mut implements = Vec::new();
+        if self.match_tnv(TokenType::Keyword, "implements") {
+            loop {
+                implements.push(self.parse_type()?);
+                if !self.match_one(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+
+        self.expect(TokenType::LeftBrace)?;
+
+        let mut fields = Vec::new();
+        let mut constructors = Vec::new();
+        let mut methods = Vec::new();
+        let mut static_methods = Vec::new();
+
+        while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+            let mut attributes = Vec::new();
+            while self.peek().token_type == TokenType::Attribute {
+                attributes.push(self.advance().lexeme.clone());
+            }
+            // Parse visibility (default: Private)
+            let mut vis = Visibility::Private;
+            let vis_tok = self.peek().lexeme.clone();
+            if vis_tok == "public" {
+                self.advance();
+                vis = Visibility::Public;
+            } else if vis_tok == "private" {
+                self.advance();
+                vis = Visibility::Private;
+            } else if vis_tok == "protected" {
+                self.advance();
+                vis = Visibility::Protected;
+            } // Add other visibilities as needed (e.g., Internal, Package)
+
+            // Parse the declaration
+            let decl_tok = self.peek();
+
+            if decl_tok.lexeme == "let" {
+                self.advance();
+                let mutable = self.match_tnv(TokenType::Operator, "~");
+                let name = self.expect(TokenType::Identifier)?.lexeme;
+                self.expect(TokenType::Colon)?;
+                let typ = self.parse_type()?;
+                let value = if self.match_tnv(TokenType::Operator, "=") {
+                    Some(self.parse_expression(0)?)
+                } else {
+                    None
+                };
+                if self.peek().token_type == TokenType::Semicolon {
+                    self.advance();
+                }
+                fields.push(ClassFieldDecl {
+                    attributes,
+                    vis,
+                    mutable,
+                    name,
+                    typ,
+                    value,
+                });
+            } else {
+                let mut func = self.parse_function()?;
+                func.attributes.extend(attributes); // Merge if any, but since parse_function parses its own, this allows extra
+                func.visibility = vis; // Override with class-level vis if needed, but since parse_function parses it, remove this if duplicate
+
+                let has_self = func.params.first().map_or(false, |p| p.name == "self");
+
+                if func.name == "new" {
+                    if has_self {
+                        return Err(ParseError::Generic(
+                            "Constructors cannot have 'self' parameter".into(),
+                        ));
+                    }
+                    constructors.push(ConstructorDecl {
+                        name: None,
+                        params: func.params,
+                        body: func.body.unwrap_or(Block { stmts: vec![] }),
+                    });
+                } else if has_self {
+                    methods.push(func);
+                } else {
+                    static_methods.push(func);
+                }
+            }
+        }
+
+        self.expect(TokenType::RightBrace)?;
+
+        Ok(ClassDecl {
+            name,
+            super_class,
+            implements,
+            fields,
+            constructors,
+            methods,
+            static_methods,
+        })
     }
 
     fn parse_struct(&mut self) -> ParseResult<StructDecl> {
@@ -1482,7 +1601,6 @@ impl Parser {
 // operator precedence table
 // Returns (precedence, right_associative)
 pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
-    // Use token.lexeme for many operators; token.token_type can also be used.
     match tok.lexeme.as_str() {
         "||" | "or" => Some((1, false)),
         "&&" | "and" => Some((2, false)),
@@ -1495,7 +1613,7 @@ pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
         "*" | "/" | "%" => Some((9, false)),
         "^." /* some custom op */ => Some((10, false)),
         "::" => Some((12, false)),
-        "=" | ":=" => Some((0, true)), // assignment (lowest precedence, right-assoc)
+        "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" => Some((0, true)), // assignments (lowest precedence, right-assoc)
         _ => None,
     }
 }
