@@ -3,7 +3,7 @@ mod tokenizer;
 
 fn main() {
     let code = "
-// Hello
+
 ";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);

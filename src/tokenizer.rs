@@ -128,6 +128,7 @@ impl Tokenizer {
             "fn",
             "let",
             "delete",
+            "joins",
             "mut",
             "if",
             "elif",

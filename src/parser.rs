@@ -1031,36 +1031,38 @@ impl Parser {
         Ok(Block { stmts })
     }
 
+    fn parse_let_stmt(&mut self) -> ParseResult<Stmt> {
+        self.advance();
+        let mutable = (!self.is_at_end() && self.match_tnv(TokenType::Operator, "~"))
+            .then(|| true)
+            .unwrap_or(false);
+        
+        let name_tok = self.expect(TokenType::Identifier)?;
+        let name = name_tok.lexeme.clone();
+        let mut typ = None;
+        if self.match_one(TokenType::Colon) {
+            typ = Some(self.parse_type()?);
+        }
+        let mut expr = None;
+        if self.match_tnv(TokenType::Operator, "=") {
+            expr = Some(self.parse_expression(0)?);
+        }
+
+        // optional semicolon
+        if self.peek().token_type == TokenType::Semicolon {
+            self.advance();
+        }
+        Ok(Stmt::Let {
+            name,
+            mutable,
+            typ,
+            expr,
+        })
+    }
+
     fn parse_statement(&mut self) -> ParseResult<Stmt> {
         match self.peek().lexeme.as_str() {
-            "let" => {
-                self.advance();
-                let mutable = (!self.is_at_end() && self.match_tnv(TokenType::Operator, "~"))
-                    .then(|| true)
-                    .unwrap_or(false);
-
-                let name_tok = self.expect(TokenType::Identifier)?;
-                let name = name_tok.lexeme.clone();
-                let mut typ = None;
-                if self.match_one(TokenType::Colon) {
-                    typ = Some(self.parse_type()?);
-                }
-                let mut expr = None;
-                if self.match_tnv(TokenType::Operator, "=") {
-                    expr = Some(self.parse_expression(0)?);
-                }
-
-                // optional semicolon
-                if self.peek().token_type == TokenType::Semicolon {
-                    self.advance();
-                }
-                Ok(Stmt::Let {
-                    name,
-                    mutable,
-                    typ,
-                    expr,
-                })
-            }
+            "let" => self.parse_let_stmt(), // uses separated method 'cuz there are other 'let' usages eg. in joins stmt
             "return" => {
                 self.advance();
                 let expr = if self.peek().token_type != TokenType::Semicolon {
@@ -1233,6 +1235,21 @@ impl Parser {
                 }
 
                 Ok(Stmt::Delete { expr })
+            }
+            "joins" => {
+                self.expect(TokenType::Keyword)?;
+                self.expect(TokenType::LeftParen)?;
+                let mut decls = Vec::new();
+                while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+                    let decl = self.parse_let_stmt()?;
+                    decls.push(decl);
+                    if !self.match_one(TokenType::Semicolon) {
+                        continue;
+                    }
+                }
+                self.expect(TokenType::RightParen)?;
+                let body = self.parse_block()?;
+                Ok(Stmt::Joins { decls, body })
             }
             _ => {
                 // expression statement
