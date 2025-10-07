@@ -127,6 +127,7 @@ impl Tokenizer {
             // Core keywords
             "fn",
             "let",
+            "delete",
             "mut",
             "if",
             "elif",

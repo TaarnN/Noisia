@@ -3,10 +3,7 @@ mod tokenizer;
 
 fn main() {
     let code = "
-@entry
-fn main() {
-    let~ x = 10
-}
+// Hello
 ";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);

@@ -1,3 +1,7 @@
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
+
 // parser.rs
 // A pragmatic, extendable parser for Noisia-like syntax.
 // Depends on your tokenizer.rs providing `Token` and `TokenType`.
@@ -258,6 +262,13 @@ pub enum Stmt {
     Poll {
         signal: Expr,
         interval: Expr,
+        body: Block,
+    },
+    Delete {
+        expr: Expr,
+    },
+    Joins {
+        decls: Vec<Stmt>,
         body: Block,
     },
     // ... add more statements
@@ -1099,13 +1110,130 @@ impl Parser {
                     })
                 }
             }
-            "watch" => self.parse_watch_statement(),
-            "converge" => self.parse_converge_statement(),
-            "within" => self.parse_within_statement(),
-            "atomically" => self.parse_atomically_statement(),
-            "trap" => self.parse_trap_statement(),
-            "guard" => self.parse_guard_statement(),
-            "poll" => self.parse_poll_statement(),
+            "watch" => {
+                self.expect(TokenType::Keyword)?;
+
+                let mut variables = Vec::new();
+                loop {
+                    variables.push(self.parse_expression(0)?);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+
+                self.expect(TokenType::LeftBrace)?;
+
+                let mut clauses = Vec::new();
+                while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+                    self.expect(TokenType::Keyword)?; // 'when'
+                    let condition = self.parse_expression(0)?;
+                    self.expect(TokenType::ShortArrow)?;
+                    let body = self.parse_block()?;
+
+                    clauses.push(WatchClause { condition, body });
+                }
+
+                self.expect(TokenType::RightBrace)?;
+                Ok(Stmt::Watch { variables, clauses })
+            }
+            "converge" => {
+                self.expect(TokenType::Keyword)?; // 'converge'
+                self.expect(TokenType::Keyword)?; // 'with'
+
+                let variable = self.expect(TokenType::Identifier)?.lexeme;
+
+                let body = self.parse_block()?;
+                self.expect(TokenType::Keyword)?; // 'until'
+                let until = self.parse_expression(0)?;
+
+                Ok(Stmt::Converge {
+                    variable,
+                    body,
+                    until,
+                })
+            }
+            "within" => {
+                self.expect(TokenType::Keyword)?; // 'within'
+                let time = self.parse_expression(0)?;
+
+                let condition = if self.match_tnv(TokenType::Keyword, "if") {
+                    Some(self.parse_expression(0)?)
+                } else {
+                    None
+                };
+
+                self.expect(TokenType::ShortArrow)?;
+                let body = self.parse_block()?;
+
+                Ok(Stmt::Within {
+                    time,
+                    condition,
+                    body,
+                })
+            }
+            "atomically" => {
+                self.expect(TokenType::Keyword)?; // 'atomically'
+                let body = self.parse_block()?;
+                Ok(Stmt::Atomically { body })
+            }
+            "trap" => {
+                self.expect(TokenType::Keyword)?; // 'trap'
+                let error_condition = self.parse_expression(0)?;
+                self.expect(TokenType::ShortArrow)?;
+                let body = self.parse_block()?;
+                Ok(Stmt::Trap {
+                    error_condition,
+                    body,
+                })
+            }
+            "guard" => {
+                self.expect(TokenType::Keyword)?; // 'guard'
+                let condition = self.parse_expression(0)?;
+                self.expect(TokenType::ShortArrow)?;
+                let then_block = self.parse_block()?;
+
+                let else_block = if self.match_tnv(TokenType::Keyword, "else") {
+                    self.expect(TokenType::ShortArrow)?;
+                    Some(self.parse_block()?)
+                } else {
+                    None
+                };
+
+                Ok(Stmt::Guard {
+                    condition,
+                    then_block,
+                    else_block,
+                })
+            }
+            "poll" => {
+                self.expect(TokenType::Keyword)?; // 'poll'
+                let signal = self.parse_expression(0)?;
+                self.expect(TokenType::Keyword)?; // 'with'
+                self.expect(TokenType::Keyword)?; // 'interval'
+                self.expect(TokenType::Operator)?; // '='
+                let interval = self.parse_expression(0)?;
+                self.expect(TokenType::ShortArrow)?;
+                let body = self.parse_block()?;
+
+                Ok(Stmt::Poll {
+                    signal,
+                    interval,
+                    body,
+                })
+            }
+            "delete" => {
+                self.expect(TokenType::Keyword)?;
+                let expr = self.parse_expression(0)?;
+
+                // optional semicolon, 'cuz this one doesn't have block
+                if self.peek().token_type == TokenType::Semicolon {
+                    self.advance();
+                }
+
+                Ok(Stmt::Delete { expr })
+            }
             _ => {
                 // expression statement
                 let expr = self.parse_expression(0)?;
@@ -1386,126 +1514,6 @@ impl Parser {
             expr,
             then_block,
             else_block,
-        })
-    }
-
-    fn parse_watch_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'watch'
-
-        let mut variables = Vec::new();
-        loop {
-            variables.push(self.parse_expression(0)?);
-            if self.match_one(TokenType::Comma) {
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        self.expect(TokenType::LeftBrace)?;
-
-        let mut clauses = Vec::new();
-        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
-            self.expect(TokenType::Keyword)?; // 'when'
-            let condition = self.parse_expression(0)?;
-            self.expect(TokenType::ShortArrow)?;
-            let body = self.parse_block()?;
-
-            clauses.push(WatchClause { condition, body });
-        }
-
-        self.expect(TokenType::RightBrace)?;
-        Ok(Stmt::Watch { variables, clauses })
-    }
-
-    fn parse_converge_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'converge'
-        self.expect(TokenType::Keyword)?; // 'with'
-
-        let variable = self.expect(TokenType::Identifier)?.lexeme;
-
-        let body = self.parse_block()?;
-        self.expect(TokenType::Keyword)?; // 'until'
-        let until = self.parse_expression(0)?;
-
-        Ok(Stmt::Converge {
-            variable,
-            body,
-            until,
-        })
-    }
-
-    fn parse_within_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'within'
-        let time = self.parse_expression(0)?;
-
-        let condition = if self.match_tnv(TokenType::Keyword, "if") {
-            Some(self.parse_expression(0)?)
-        } else {
-            None
-        };
-
-        self.expect(TokenType::ShortArrow)?;
-        let body = self.parse_block()?;
-
-        Ok(Stmt::Within {
-            time,
-            condition,
-            body,
-        })
-    }
-
-    fn parse_atomically_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'atomically'
-        let body = self.parse_block()?;
-        Ok(Stmt::Atomically { body })
-    }
-
-    fn parse_trap_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'trap'
-        let error_condition = self.parse_expression(0)?;
-        self.expect(TokenType::ShortArrow)?;
-        let body = self.parse_block()?;
-        Ok(Stmt::Trap {
-            error_condition,
-            body,
-        })
-    }
-
-    fn parse_guard_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'guard'
-        let condition = self.parse_expression(0)?;
-        self.expect(TokenType::ShortArrow)?;
-        let then_block = self.parse_block()?;
-
-        let else_block = if self.match_tnv(TokenType::Keyword, "else") {
-            self.expect(TokenType::ShortArrow)?;
-            Some(self.parse_block()?)
-        } else {
-            None
-        };
-
-        Ok(Stmt::Guard {
-            condition,
-            then_block,
-            else_block,
-        })
-    }
-
-    fn parse_poll_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'poll'
-        let signal = self.parse_expression(0)?;
-        self.expect(TokenType::Keyword)?; // 'with'
-        self.expect(TokenType::Keyword)?; // 'interval'
-        self.expect(TokenType::Operator)?; // '='
-        let interval = self.parse_expression(0)?;
-        self.expect(TokenType::ShortArrow)?;
-        let body = self.parse_block()?;
-
-        Ok(Stmt::Poll {
-            signal,
-            interval,
-            body,
         })
     }
 
