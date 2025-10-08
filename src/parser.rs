@@ -133,7 +133,7 @@ pub enum FunctionModifier {
 
 #[derive(Debug, Clone)]
 pub struct Param {
-    pub name: String,
+    pub pattern: Pattern,
     pub typ: Option<TypeRef>,
     pub default: Option<Expr>,
 }
@@ -200,7 +200,7 @@ pub struct Block {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Let {
-        name: String,
+        pattern: Pattern,
         mutable: bool,
         typ: Option<TypeRef>,
         expr: Option<Expr>,
@@ -293,7 +293,7 @@ pub enum PatternKind {
     Wildcard,
     Literal(Literal),
     Struct {
-        name: String,
+        name: Option<String>, // Now optional
         fields: Vec<(String, Pattern)>,
     },
     Tuple(Vec<Pattern>),
@@ -651,18 +651,17 @@ impl Parser {
         self.expect(TokenType::LeftParen)?;
         let mut params = Vec::new();
         while self.peek().token_type != TokenType::RightParen {
-            let param_name_tok = self.expect(TokenType::Identifier)?;
-            let param_name = param_name_tok.lexeme.clone();
+            let pattern = self.parse_pattern()?; // Changed from expect Identifier
             let mut typ = None;
-            let mut default = None;
             if self.match_one(TokenType::Colon) {
                 typ = Some(self.parse_type()?);
             }
+            let mut default = None;
             if self.match_tnv(TokenType::Operator, "=") {
-                default = Some(self.parse_expression(0).unwrap());
+                default = Some(self.parse_expression(0)?);
             }
             params.push(Param {
-                name: param_name,
+                pattern,
                 typ,
                 default,
             });
@@ -936,9 +935,10 @@ impl Parser {
                 let mut func = self.parse_function()?;
                 func.attributes.extend(attributes); // Merge if any, but since parse_function parses its own, this allows extra
                 func.visibility = vis; // Override with class-level vis if needed, but since parse_function parses it, remove this if duplicate
-
-                let has_self = func.params.first().map_or(false, |p| p.name == "self");
-
+                let has_self = func.params.first().map_or(
+                    false,
+                    |p| matches!(p.pattern.kind, PatternKind::Identifier(ref id) if id == "self"),
+                );
                 if func.name == "new" {
                     if has_self {
                         return Err(ParseError::Generic(
@@ -1036,9 +1036,8 @@ impl Parser {
         let mutable = (!self.is_at_end() && self.match_tnv(TokenType::Operator, "~"))
             .then(|| true)
             .unwrap_or(false);
-        
-        let name_tok = self.expect(TokenType::Identifier)?;
-        let name = name_tok.lexeme.clone();
+
+        let pattern = self.parse_pattern()?;
         let mut typ = None;
         if self.match_one(TokenType::Colon) {
             typ = Some(self.parse_type()?);
@@ -1053,7 +1052,7 @@ impl Parser {
             self.advance();
         }
         Ok(Stmt::Let {
-            name,
+            pattern,
             mutable,
             typ,
             expr,
@@ -1535,22 +1534,86 @@ impl Parser {
     }
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
-        let tok = self.peek().clone();
         let mut bindings = Vec::new();
-        let kind = match tok.token_type {
+        let tok = self.peek().clone();
+        let original_kind = match tok.token_type {
+            TokenType::LeftParen => {
+                // Tuple pattern: (pat1, pat2, ...)
+                self.advance();
+                let mut patterns = Vec::new();
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
+                    let sub_pat = self.parse_pattern()?;
+                    bindings.extend(sub_pat.bindings.clone()); // Collect sub-bindings
+                    patterns.push(sub_pat);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightParen)?;
+                PatternKind::Tuple(patterns)
+            }
+            TokenType::LeftBrace => {
+                // Struct pattern: {field1: pat1, field2: pat2} หรือ {field1, field2} (shorthand)
+                self.advance();
+                let mut fields = Vec::new();
+
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                    let field_name = self.expect(TokenType::Identifier)?.lexeme;
+
+                    // ตรวจสอบว่าเป็นรูปแบบเต็ม {field: pattern} หรือ shorthand {field}
+                    if self.match_one(TokenType::Colon) {
+                        // รูปแบบเต็ม: {field: pattern}
+                        let field_pat = self.parse_pattern()?;
+                        bindings.extend(field_pat.bindings.clone()); // Collect sub-bindings
+                        fields.push((field_name, field_pat));
+                    } else {
+                        // รูปแบบ shorthand: {field} - สร้าง pattern เป็น Identifier(field)
+                        let field_pat = Pattern {
+                            kind: PatternKind::Identifier(field_name.clone()),
+                            bindings: vec![field_name.clone()],
+                        };
+                        bindings.push(field_name.clone()); // เพิ่ม binding
+                        fields.push((field_name, field_pat));
+                    }
+
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightBrace)?;
+                PatternKind::Struct { name: None, fields }
+            }
             TokenType::Identifier => {
                 let ident = self.advance().lexeme.clone();
                 if ident == "_" {
                     PatternKind::Wildcard
                 } else if self.peek().token_type == TokenType::LeftBrace {
-                    // Struct pattern
-                    self.advance();
+                    // Named struct pattern: Ident{field1: pat1, ...} หรือ Ident{field1, field2}
+                    self.advance(); // Consume '{'
                     let mut fields = Vec::new();
-                    while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
                         let field_name = self.expect(TokenType::Identifier)?.lexeme;
-                        self.expect(TokenType::Colon)?;
-                        let field_pattern = self.parse_pattern()?;
-                        fields.push((field_name, field_pattern));
+
+                        // ตรวจสอบว่าเป็นรูปแบบเต็มหรือ shorthand
+                        if self.match_one(TokenType::Colon) {
+                            // รูปแบบเต็ม: field: pattern
+                            let field_pat = self.parse_pattern()?;
+                            bindings.extend(field_pat.bindings.clone()); // Collect
+                            fields.push((field_name, field_pat));
+                        } else {
+                            // รูปแบบ shorthand: field - สร้าง pattern เป็น Identifier(field)
+                            let field_pat = Pattern {
+                                kind: PatternKind::Identifier(field_name.clone()),
+                                bindings: vec![field_name.clone()],
+                            };
+                            bindings.push(field_name.clone()); // เพิ่ม binding
+                            fields.push((field_name, field_pat));
+                        }
 
                         if self.match_one(TokenType::Comma) {
                             continue;
@@ -1560,15 +1623,17 @@ impl Parser {
                     }
                     self.expect(TokenType::RightBrace)?;
                     PatternKind::Struct {
-                        name: ident,
+                        name: Some(ident),
                         fields,
                     }
                 } else if self.peek().token_type == TokenType::LeftParen {
-                    // Tuple pattern
-                    self.advance();
+                    // Variant positional: Ident(pat1, pat2)
+                    self.advance(); // Consume '('
                     let mut patterns = Vec::new();
-                    while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
-                        patterns.push(self.parse_pattern()?);
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
+                        let sub_pat = self.parse_pattern()?;
+                        bindings.extend(sub_pat.bindings.clone()); // Collect
+                        patterns.push(sub_pat);
                         if self.match_one(TokenType::Comma) {
                             continue;
                         } else {
@@ -1576,9 +1641,8 @@ impl Parser {
                         }
                     }
                     self.expect(TokenType::RightParen)?;
-                    PatternKind::Tuple(patterns)
+                    PatternKind::Tuple(patterns) // Or separate VariantPositional if needed
                 } else {
-                    // Simple identifier pattern
                     bindings.push(ident.clone());
                     PatternKind::Identifier(ident)
                 }
@@ -1596,30 +1660,29 @@ impl Parser {
             _ => return Err(ParseError::Generic("Expected pattern".into())),
         };
 
-        // Handle OR patterns (pattern1 | pattern2)
-        let mut patterns = vec![kind];
+        let original_bindings = bindings;
+
+        let mut total_bindings = original_bindings.clone();
+
+        let mut or_patterns = vec![Pattern {
+            kind: original_kind,
+            bindings: original_bindings,
+        }];
+
         while self.match_tnv(TokenType::Operator, "|") {
-            patterns.push(self.parse_pattern()?.kind);
+            let sub_pat = self.parse_pattern()?;
+            total_bindings.extend(sub_pat.bindings.clone());
+            or_patterns.push(sub_pat);
         }
 
-        let final_kind = if patterns.len() == 1 {
-            patterns.remove(0)
+        if or_patterns.len() > 1 {
+            Ok(Pattern {
+                kind: PatternKind::Or(or_patterns),
+                bindings: total_bindings,
+            })
         } else {
-            PatternKind::Or(
-                patterns
-                    .into_iter()
-                    .map(|k| Pattern {
-                        kind: k,
-                        bindings: Vec::new(),
-                    })
-                    .collect(),
-            )
-        };
-
-        Ok(Pattern {
-            kind: final_kind,
-            bindings,
-        })
+            Ok(or_patterns.remove(0))
+        }
     }
 }
 

@@ -3,7 +3,10 @@ mod tokenizer;
 
 fn main() {
     let code = "
-
+@entry
+fn main() {
+    let {x, y, z} = getv()
+}
 ";
 
     let mut tokenizer = tokenizer::Tokenizer::new(code);
