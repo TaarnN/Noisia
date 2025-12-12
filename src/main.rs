@@ -5,7 +5,7 @@ fn main() {
     let code = "
 @entry
 fn main() {
-    let {x, y, z} = getv()
+    println(Newworldsymphony {symphony_name: \"Symphony No. 5\", composer: \"Beethoven\"});
 }
 ";
 

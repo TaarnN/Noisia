@@ -102,12 +102,27 @@ struct Point {
 enum Shape {
     Circle { radius: Float },
     Rect { width: Float, height: Float },
-    Polygon(List<Point>),
+    Polygon(Vector<Point>),
 }
 ```
 
 - `{}` สำหรับ named fields, `()` สำหรับ positional
 
+### 3.6 Array Literal
+
+สร้าง Array โดยใช้เครื่องหมาย [...]: `[a, b, c, ...]`
+
+### 3.7 Tuple Literal
+
+สร้าง Tuple โดยใช้เครื่องหมาย (...): `(a, b, c, ...)`
+
+### 3.8 Struct Object Literal
+
+สร้าง instance ของ Struct โดยใช้ชื่อ Struct ตามด้วยเครื่องหมายปีกกาและกำหนดค่า field: `StructName { field1: value1, field2: value2, ... }`
+
+### 3.9 Vector Literal
+
+สร้าง Vector โดยใช้ `v` ตามด้วยเครื่องหมายเหลี่ยม: `v[a, b, c, ...]`
 ---
 
 ## 4. ฟังก์ชัน และ Generic
@@ -126,7 +141,7 @@ fn greet(name: String) -> String {
 ### 4.2 Generic
 
 ```nx
-fn head<T>(lst: List<T>) -> Option<T> {
+fn head<T>(lst: [T]) -> Option<T> {
     match lst {
         Cons(h, _):> Some(h)
         Nil:> None
@@ -154,18 +169,6 @@ let result = if x > 0 { "positive" }
 - รองรับหลายชั้นด้วย `elif`
 - มี `else` สำรองเมื่อไม่มีเงื่อนไขใดตรง
 - เหมาะกับการเขียน logic ที่ประกอบเป็นค่ากลับได้ทันที
-
-```nx
-// 2. If Let (Pattern-binding)
-if let Some(value) = maybeValue {
-    println("Value = " + value.toString())
-}
-```
-
-- รวม pattern matching กับเงื่อนไข `if`
-- ตรวจสอบและ bind ค่าถ้า `maybeValue` ไม่ว่าง (Option/Maybe)
-- ลด boilerplate ในการเช็ก null หรือ Option
-- ถ้าเงื่อนไขไม่ตรง จะข้ามบล็อกไปเลย
 
 ```nx
 // 3. Match (Pattern Matching Expression)
@@ -562,7 +565,7 @@ println(d.year)
 
 ```nx
 fn greet(name: String) :> "Hello, " + name
-fn head<T>(lst: List<T>) :> match lst {
+fn head<T>(lst: [T]) :> match lst {
     Cons(h, _):> Some(h)
     Nil:> None
 }
@@ -670,7 +673,7 @@ match value {
 
 ```nx
 let (id,name,age) = getUserInfo()
-let { x, y:coordY, z? } = point3D
+let { x, y, z } = point3D
 ```
 
 - แยกค่า tuple/record มาเป็นตัวแปรย่อยทันที
@@ -2358,7 +2361,7 @@ println(s.split(",").map(trim))
 
 ---
 
-### 46.2 List / Array (`[T]`)
+### 46.2 Vector (`Vector<T>`)
 
 | Method (signature)                          |              Params | Return     | คำอธิบาย / คุณสมบัติ                                         |
 | ------------------------------------------- | ------------------: | ---------- | ------------------------------------------------------- |
@@ -2375,14 +2378,14 @@ println(s.split(",").map(trim))
 
 **ตัวอย่าง**
 ```nx
-let nums = [5,1,3]
+let nums: Vector<Int> = v[5,1,3]
 nums.sort()
 let doubled = nums.map(\x :> x*2)
 ```
 
 ---
 
-### 46.3 Map / Dict (`[K:V]`)
+### 46.3 Struct Object (Can be overwriten in struct declaration)
 
 | Method (signature)                                                     |              Params | Return     | คำอธิบาย / คุณสมบัติ         |
 | ---------------------------------------------------------------------- | ------------------: | ---------- | ----------------------- |

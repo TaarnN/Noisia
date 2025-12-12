@@ -5,9 +5,13 @@
 ผมจัดกลุ่มตาม sections ใน md เพื่อความชัดเจน, และ list เฉพาะที่ขาดจริง (ไม่รวมที่ handle partial เช่น effects มีแล้ว, แต่ miss บาง advanced). โดยรวม, tokenizer ขาด ~10-15% (mostly ops/units สำหรับ advanced), parser ขาด ~40-50% (mostly advanced stmts/exprs และ temporal).
 
 #### 1. **Types & Declarations (Section 3)** (✅)
-   - Variable deletion: ไม่มี parsing สำหรับ `delete <var>` (ควร add Stmt::Delete).
-   - Auto-delete scope: ไม่มี parsing สำหรับ `joins (let a=5; let b=10; ...) { ... }` (ควร add Stmt::Joins { decls: Vec<Stmt>, body: Block }).
-   - Destructuring assignment: ไม่ support full ใน let (เช่น `let (a,b,c)=...` หรือ `let Point{x,y}=p`) – parser ใช้ name: String เท่านั้น (ควร change to Pattern ใน Let).
+   - ☑︎ Variable deletion: ไม่มี parsing สำหรับ `delete <var>` (ควร add Stmt::Delete).
+   - ☑︎ Auto-delete scope: ไม่มี parsing สำหรับ `joins (let a=5; let b=10; ...) { ... }` (ควร add Stmt::Joins { decls: Vec<Stmt>, body: Block }).
+   - ☑︎ Destructuring assignment: ไม่ support full ใน let (เช่น `let (a,b,c)=...` หรือ `let Point{x,y}=p`) – parser ใช้ name: String เท่านั้น (ควร change to Pattern ใน Let).
+  
+#### 1.5. (เพิ่มเอง) **Array, Vector, Object, Tuple**
+   - เพิ่มใน syntax
+   - เพิ่มใน parser
 
 #### 2. **Control Flow Statements (Section 5)**
    - **Basic**: 

@@ -3,8 +3,6 @@
 #![allow(dead_code)]
 
 // parser.rs
-// A pragmatic, extendable parser for Noisia-like syntax.
-// Depends on your tokenizer.rs providing `Token` and `TokenType`.
 use crate::tokenizer::{Token, TokenType};
 use std::fmt;
 
@@ -227,12 +225,6 @@ pub enum Stmt {
         expr: Expr,
         arms: Vec<MatchArm>,
     },
-    IfLet {
-        pattern: Pattern,
-        expr: Expr,
-        then_block: Block,
-        else_block: Option<Block>,
-    },
     Watch {
         variables: Vec<Expr>,
         clauses: Vec<WatchClause>,
@@ -293,11 +285,21 @@ pub enum PatternKind {
     Wildcard,
     Literal(Literal),
     Struct {
-        name: Option<String>, // Now optional
+        name: Option<String>,
         fields: Vec<(String, Pattern)>,
     },
     Tuple(Vec<Pattern>),
     Or(Vec<Pattern>),
+    SomeVariant(Box<Pattern>),
+    NoneVariant,
+    OkVariant(Box<Pattern>),
+    ErrVariant(Box<Pattern>),
+    EnumVariant {
+        variant_name: String,
+        inner_pattern: Option<Box<Pattern>>,
+    },
+    Array(Vec<Pattern>),
+    Nil,
 }
 
 #[derive(Debug, Clone)]
@@ -346,7 +348,17 @@ pub enum Literal {
     Float(String),
     String(String),
     Bool(bool),
-    Unit { v: String, u: String },
+    Unit {
+        v: String,
+        u: String,
+    },
+    Array(Vec<Expr>),
+    Vector(Vec<Expr>),
+    Struct {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    Tuple(Vec<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -1089,27 +1101,48 @@ impl Parser {
                 let body = self.parse_block()?;
                 Ok(Stmt::For { pat, iter, body })
             }
-            "match" => self.parse_match_statement(),
-            "if" => {
-                let next_idx = self.idx + 1;
-                if next_idx < self.tokens.len() && self.tokens[next_idx].lexeme == "let" {
-                    self.parse_if_let_statement()
-                } else {
-                    self.advance();
-                    let cond = self.parse_expression(0)?;
-                    let then_block = self.parse_block()?;
-                    let else_block = if self.peek().lexeme == "else" {
-                        self.advance();
-                        Some(self.parse_block()?)
+            "match" => {
+                self.expect(TokenType::Keyword)?; // 'match'
+                let expr = self.parse_expression(0)?;
+                self.expect(TokenType::LeftBrace)?;
+
+                let mut arms = Vec::new();
+                while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+                    let pattern = self.parse_pattern()?;
+                    let guard = if self.match_tnv(TokenType::Keyword, "if") {
+                        Some(self.parse_expression(0)?)
                     } else {
                         None
                     };
-                    Ok(Stmt::If {
-                        cond,
-                        then_block,
-                        else_block,
-                    })
+                    self.expect(TokenType::ShortArrow)?;
+                    let body = self.parse_expression(0)?;
+
+                    arms.push(MatchArm {
+                        pattern,
+                        guard,
+                        body,
+                    });
                 }
+
+                self.expect(TokenType::RightBrace)?;
+                Ok(Stmt::Match { expr, arms })
+            }
+            "if" => {
+                let next_idx = self.idx + 1;
+                self.advance();
+                let cond = self.parse_expression(0)?;
+                let then_block = self.parse_block()?;
+                let else_block = if self.peek().lexeme == "else" {
+                    self.advance();
+                    Some(self.parse_block()?)
+                } else {
+                    None
+                };
+                Ok(Stmt::If {
+                    cond,
+                    then_block,
+                    else_block,
+                })
             }
             "watch" => {
                 self.expect(TokenType::Keyword)?;
@@ -1337,14 +1370,82 @@ impl Parser {
                 Ok(Expr::Literal(Literal::Bool(b)))
             }
             TokenType::Identifier | TokenType::ModulePath => {
-                self.advance();
-                Ok(Expr::Ident(tok.lexeme.clone()))
+                let ident = self.advance().lexeme.clone();
+                if self.peek().token_type == TokenType::LeftBrace {
+                    // Struct literal: Ident { field: expr, ... }
+                    self.advance(); // consume '{'
+                    let mut fields = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+                        self.expect(TokenType::Colon)?;
+                        let field_expr = self.parse_expression(0)?;
+                        fields.push((field_name, field_expr));
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBrace)?;
+                    Ok(Expr::Literal(Literal::Struct {
+                        name: ident,
+                        fields,
+                    }))
+                } else if ident == "v" && self.peek().token_type == TokenType::LeftBracket {
+                    // Vector literal: v[expr, expr, ...]
+                    self.advance(); // consume '['
+                    let mut elements = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBracket {
+                        let elem = self.parse_expression(0)?;
+                        elements.push(elem);
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBracket)?;
+                    Ok(Expr::Literal(Literal::Vector(elements)))
+                } else {
+                    Ok(Expr::Ident(ident))
+                }
             }
             TokenType::LeftParen => {
-                self.advance();
-                let inner = self.parse_expression(0)?;
+                self.advance(); // consume '('
+                let mut exprs = Vec::new();
+                let mut trailing_comma = false;
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
+                    let expr = self.parse_expression(0)?;
+                    exprs.push(expr);
+                    if self.match_one(TokenType::Comma) {
+                        trailing_comma = true;
+                        continue;
+                    } else {
+                        trailing_comma = false;
+                        break;
+                    }
+                }
                 self.expect(TokenType::RightParen)?;
-                Ok(Expr::Grouping(Box::new(inner)))
+                if exprs.len() == 1 && !trailing_comma {
+                    Ok(Expr::Grouping(Box::new(exprs.remove(0))))
+                } else {
+                    Ok(Expr::Literal(Literal::Tuple(exprs)))
+                }
+            }
+            TokenType::LeftBracket => {
+                self.advance(); // consume '['
+                let mut elements = Vec::new();
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightBracket {
+                    let elem = self.parse_expression(0)?;
+                    elements.push(elem);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightBracket)?;
+                Ok(Expr::Literal(Literal::Array(elements)))
             }
             _ => Err(ParseError::UnexpectedToken {
                 expected: "expression".into(),
@@ -1483,56 +1584,6 @@ impl Parser {
         })
     }
 
-    fn parse_match_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'match'
-        let expr = self.parse_expression(0)?;
-        self.expect(TokenType::LeftBrace)?;
-
-        let mut arms = Vec::new();
-        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
-            let pattern = self.parse_pattern()?;
-            let guard = if self.match_tnv(TokenType::Keyword, "if") {
-                Some(self.parse_expression(0)?)
-            } else {
-                None
-            };
-            self.expect(TokenType::ShortArrow)?;
-            let body = self.parse_expression(0)?;
-
-            arms.push(MatchArm {
-                pattern,
-                guard,
-                body,
-            });
-        }
-
-        self.expect(TokenType::RightBrace)?;
-        Ok(Stmt::Match { expr, arms })
-    }
-
-    fn parse_if_let_statement(&mut self) -> ParseResult<Stmt> {
-        self.expect(TokenType::Keyword)?; // 'if'
-        self.expect(TokenType::Keyword)?; // 'let'
-
-        let pattern = self.parse_pattern()?;
-        self.expect(TokenType::Operator)?; // '='
-        let expr = self.parse_expression(0)?;
-
-        let then_block = self.parse_block()?;
-        let else_block = if self.match_tnv(TokenType::Keyword, "else") {
-            Some(self.parse_block()?)
-        } else {
-            None
-        };
-
-        Ok(Stmt::IfLet {
-            pattern,
-            expr,
-            then_block,
-            else_block,
-        })
-    }
-
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
         let mut bindings = Vec::new();
         let tok = self.peek().clone();
@@ -1553,6 +1604,23 @@ impl Parser {
                 }
                 self.expect(TokenType::RightParen)?;
                 PatternKind::Tuple(patterns)
+            }
+            TokenType::LeftBracket => {
+                // Array pattern: [pat1, pat2, ...]
+                self.advance();
+                let mut patterns = Vec::new();
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightBracket {
+                    let sub_pat = self.parse_pattern()?;
+                    bindings.extend(sub_pat.bindings.clone()); // Collect sub-bindings
+                    patterns.push(sub_pat);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightBracket)?;
+                PatternKind::Array(patterns)
             }
             TokenType::LeftBrace => {
                 // Struct pattern: {field1: pat1, field2: pat2} หรือ {field1, field2} (shorthand)
@@ -1589,10 +1657,33 @@ impl Parser {
             }
             TokenType::Identifier => {
                 let ident = self.advance().lexeme.clone();
+                let is_upper = ident.chars().next().map_or(false, |c| c.is_uppercase());
                 if ident == "_" {
                     PatternKind::Wildcard
+                } else if ident == "Nil" {
+                    PatternKind::Nil
+                } else if ident == "None" {
+                    PatternKind::NoneVariant
+                } else if ident == "Some" && self.peek().token_type == TokenType::LeftParen {
+                    self.advance(); // Consume '('
+                    let inner_pat = self.parse_pattern()?;
+                    bindings.extend(inner_pat.bindings.clone());
+                    self.expect(TokenType::RightParen)?;
+                    PatternKind::SomeVariant(Box::new(inner_pat))
+                } else if ident == "Ok" && self.peek().token_type == TokenType::LeftParen {
+                    self.advance(); // Consume '('
+                    let inner_pat = self.parse_pattern()?;
+                    bindings.extend(inner_pat.bindings.clone());
+                    self.expect(TokenType::RightParen)?;
+                    PatternKind::OkVariant(Box::new(inner_pat))
+                } else if ident == "Err" && self.peek().token_type == TokenType::LeftParen {
+                    self.advance(); // Consume '('
+                    let inner_pat = self.parse_pattern()?;
+                    bindings.extend(inner_pat.bindings.clone());
+                    self.expect(TokenType::RightParen)?;
+                    PatternKind::ErrVariant(Box::new(inner_pat))
                 } else if self.peek().token_type == TokenType::LeftBrace {
-                    // Named struct pattern: Ident{field1: pat1, ...} หรือ Ident{field1, field2}
+                    // Struct pattern or enum struct variant
                     self.advance(); // Consume '{'
                     let mut fields = Vec::new();
 
@@ -1622,17 +1713,29 @@ impl Parser {
                         }
                     }
                     self.expect(TokenType::RightBrace)?;
-                    PatternKind::Struct {
-                        name: Some(ident),
-                        fields,
+                    if is_upper {
+                        let inner = Some(Box::new(Pattern {
+                            kind: PatternKind::Struct { name: None, fields },
+                            bindings: bindings.clone(),
+                        }));
+                        PatternKind::EnumVariant {
+                            variant_name: ident,
+                            inner_pattern: inner,
+                        }
+                    } else {
+                        PatternKind::Struct {
+                            name: Some(ident),
+                            fields,
+                        }
                     }
                 } else if self.peek().token_type == TokenType::LeftParen {
                     // Variant positional: Ident(pat1, pat2)
                     self.advance(); // Consume '('
                     let mut patterns = Vec::new();
+                    let mut sub_bindings = Vec::new();
                     while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
                         let sub_pat = self.parse_pattern()?;
-                        bindings.extend(sub_pat.bindings.clone()); // Collect
+                        sub_bindings.extend(sub_pat.bindings.clone());
                         patterns.push(sub_pat);
                         if self.match_one(TokenType::Comma) {
                             continue;
@@ -1641,7 +1744,27 @@ impl Parser {
                         }
                     }
                     self.expect(TokenType::RightParen)?;
-                    PatternKind::Tuple(patterns) // Or separate VariantPositional if needed
+                    let inner = if patterns.is_empty() {
+                        return Err(ParseError::Generic("Empty tuple in variant".into()));
+                    } else if patterns.len() == 1 {
+                        Some(Box::new(patterns.remove(0)))
+                    } else {
+                        Some(Box::new(Pattern {
+                            kind: PatternKind::Tuple(patterns),
+                            bindings: sub_bindings,
+                        }))
+                    };
+                    bindings = inner.as_ref().map_or(Vec::new(), |p| p.bindings.clone());
+                    PatternKind::EnumVariant {
+                        variant_name: ident,
+                        inner_pattern: inner,
+                    }
+                } else if is_upper {
+                    // Unit enum variant
+                    PatternKind::EnumVariant {
+                        variant_name: ident,
+                        inner_pattern: None,
+                    }
                 } else {
                     bindings.push(ident.clone());
                     PatternKind::Identifier(ident)
