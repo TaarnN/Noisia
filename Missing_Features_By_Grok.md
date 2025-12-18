@@ -9,7 +9,7 @@
    - ☑︎ Auto-delete scope: ไม่มี parsing สำหรับ `joins (let a=5; let b=10; ...) { ... }` (ควร add Stmt::Joins { decls: Vec<Stmt>, body: Block }).
    - ☑︎ Destructuring assignment: ไม่ support full ใน let (เช่น `let (a,b,c)=...` หรือ `let Point{x,y}=p`) – parser ใช้ name: String เท่านั้น (ควร change to Pattern ใน Let).
   
-#### 1.5. (เพิ่มเอง) **Array, Vector, Object, Tuple**
+#### 1.5. (เพิ่มเอง) **Array, Vector, Object, Tuple** (✅)
    - เพิ่มใน syntax
    - เพิ่มใน parser
 
