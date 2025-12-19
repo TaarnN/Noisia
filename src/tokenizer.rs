@@ -43,9 +43,7 @@ pub enum TokenType {
     ModulePath,
 
     // Comments
-    LineComment,
-    BlockComment,
-    DocComment,
+    Comment,
 
     // Attributes
     Attribute,
@@ -355,6 +353,7 @@ impl Tokenizer {
             let start_column = self.column;
 
             match self.scan_token() {
+                Some(token) if token.token_type == TokenType::Comment => {}
                 Some(token) => tokens.push(token),
                 None => {
                     // Skip unknown character and create error token
@@ -490,7 +489,7 @@ impl Tokenizer {
             lexeme.push(self.advance());
         }
 
-        Token::new(TokenType::LineComment, lexeme, start_line, start_column)
+        Token::new(TokenType::Comment, lexeme, start_line, start_column)
     }
 
     fn block_comment(&mut self) -> Token {
@@ -520,7 +519,7 @@ impl Tokenizer {
             );
         }
 
-        Token::new(TokenType::BlockComment, lexeme, start_line, start_column)
+        Token::new(TokenType::Comment, lexeme, start_line, start_column)
     }
 
     fn doc_comment(&mut self) -> Token {
@@ -532,7 +531,7 @@ impl Tokenizer {
             lexeme.push(self.advance());
         }
 
-        Token::new(TokenType::DocComment, lexeme, start_line, start_column)
+        Token::new(TokenType::Comment, lexeme, start_line, start_column)
     }
 
     fn string_literal(&mut self) -> Token {

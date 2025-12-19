@@ -620,17 +620,9 @@ let t = 2h - 30min
 
 ---
 
-## 22. Inline JSON-like Struct Literal
+## ~~22. Inline JSON-like Struct Literal~~
 
-```nx
-let cfg = MyConfig {
-  "host": "localhost",
-  "port": 8080,
-  "useSsl": true
-}
-```
-
-- สร้าง struct เหมือน JSON
+- ~~สร้าง struct เหมือน JSON~~
 
 ---
 
