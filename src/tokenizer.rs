@@ -150,15 +150,6 @@ impl Tokenizer {
             "extends",
             "implements",
             "with",
-            // Type keywords
-            "Int",
-            "Float",
-            "Bool",
-            "String",
-            "Option",
-            "Result",
-            "List",
-            "Self",
             // Effect & Async keywords
             "async",
             "await",

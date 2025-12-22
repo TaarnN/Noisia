@@ -10,8 +10,8 @@
 
 #### 3. Types & Declarations
 - **ครบถ้วน**: Primitives (Int, Float, etc. via TypeRef), `let x: Int = 10`, `let~ y: Int = 20` (mutable via Let stmt with mutable flag), `delete temp` (Delete stmt with expr).
-- **ขาดบางส่วน**:
-  - `joins (let a=5; let b=10; let~ isOpening=true) { body }`: มี `Joins` stmt แต่ decls เป็น Vec<Stmt> (ซึ่ง Stmt รวม Let) ดังนั้นรองรับ decls ที่เป็น let statements แต่ไม่เช็คว่า decls ต้องเป็น let เท่านั้น (ตาม md เป็น joins for decls), และไม่ parse parentheses รอบ decls (ใน parse_joins คาดว่า parse decls ตรงๆ ไม่มี `(` ).
+- **~~ขาดบางส่วน~~**:
+  - ~~`joins (let a=5; let b=10; let~ isOpening=true) { body }`: มี `Joins` stmt แต่ decls เป็น Vec<Stmt> (ซึ่ง Stmt รวม Let) ดังนั้นรองรับ decls ที่เป็น let statements แต่ไม่เช็คว่า decls ต้องเป็น let เท่านั้น (ตาม md เป็น joins for decls), และไม่ parse parentheses รอบ decls (ใน parse_joins คาดว่า parse decls ตรงๆ ไม่มี `(` ).~~
 - **ไม่ขาด**: Auto-delete ตาม scope เป็น semantics ไม่ใช่ syntax.
 
 #### 4. Struct (Product Type), Enum (Sum Type), Array, Tuple, Struct Literal, Vector Literal
