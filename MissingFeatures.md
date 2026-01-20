@@ -44,9 +44,6 @@
 
 #### 7. Lambda & Pipeline
 - **ครบถ้วน**: -.
-- **ขาดทั้งหมด**:
-  - Lambda `\n :> n*2`: ขาด Expr::Lambda.
-  - Pipeline `nums |> map(..) |> filter(..)`: ขาด operator `|>` ใน op_precedence (มี | แต่ไม่ใช่ pipeline), และ parse_expression ไม่ handle pipeline chaining.
 
 #### 8. มาโคร & Compile-Time Metaprogramming
 - **ขาดทั้งหมด**: ไม่มี Item::Macro, parse_macro (keyword "macro", compile-time { stringify, emit }).
