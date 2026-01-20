@@ -340,7 +340,15 @@ pub enum Expr {
         array: Box<Expr>,
         index: Box<Expr>,
     },
-    // more: lambda, match, pipeline, pointer ops, etc.
+    Lambda {
+        params: Vec<Param>,
+        body: Box<Expr>,
+    },
+    Pipeline {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    // more: pointer ops, etc.
 }
 
 #[derive(Debug, Clone)]

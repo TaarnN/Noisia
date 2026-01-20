@@ -1,13 +1,19 @@
 mod parser;
-mod tokenizer;
 mod ptypes;
+mod tokenizer;
 
 fn main() {
     let code = "
-enum Shape {
-    Circle { radius: Float },
-    Rect { width: Float, height: Float },
-    Polygon(Vector<Point>),
+@entry
+fn main() {
+    let double = \\x :> x * 2;
+    let add = \\x, y :> x + y;
+    
+    let result = [1, 2, 3, 4] |> double |> \\xs :> xs.length;
+    
+    let pipeline_result = 5 |> \\n :> n * 10 |> \\n :> n + 5;
+
+    let complex = \\x, y, z :> (x + y) * z |> \\n :> n / 2;
 }
 ";
 

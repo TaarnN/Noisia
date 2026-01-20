@@ -869,11 +869,20 @@ impl Parser {
 
             let next_min = if right_assoc { prec } else { prec + 1 };
             let right = self.parse_expression(next_min)?;
-            left = Expr::Binary {
-                left: Box::new(left),
-                op: op_lex,
-                right: Box::new(right),
-            };
+            
+            // Handle pipeline operator specially
+            if op_lex == "|>" {
+                left = Expr::Pipeline {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else {
+                left = Expr::Binary {
+                    left: Box::new(left),
+                    op: op_lex,
+                    right: Box::new(right),
+                };
+            }
         }
 
         Ok(left)
@@ -902,6 +911,10 @@ impl Parser {
     fn parse_primary(&mut self) -> ParseResult<Expr> {
         let tok = self.peek().clone();
         match tok.token_type {
+            TokenType::LambdaArrow => {
+                self.advance(); // consume '\'
+                self.parse_lambda()
+            }
             TokenType::IntLiteral => {
                 self.advance();
                 Ok(Expr::Literal(Literal::Int(tok.lexeme)))
@@ -1408,6 +1421,46 @@ impl Parser {
             Ok(or_patterns.remove(0))
         }
     }
+
+    fn parse_lambda(&mut self) -> ParseResult<Expr> {
+        // Parse parameters: \param :> expr or \param1, param2 :> expr
+        let mut params = Vec::new();
+        
+        // Parse first parameter
+        let param_name = self.expect(TokenType::Identifier)?.lexeme;
+        params.push(Param {
+            pattern: Pattern {
+                kind: PatternKind::Identifier(param_name.clone()),
+                bindings: vec![param_name],
+            },
+            typ: None,
+            default: None,
+        });
+
+        // Parse additional parameters if comma-separated
+        while self.match_one(TokenType::Comma) {
+            let param_name = self.expect(TokenType::Identifier)?.lexeme;
+            params.push(Param {
+                pattern: Pattern {
+                    kind: PatternKind::Identifier(param_name.clone()),
+                    bindings: vec![param_name],
+                },
+                typ: None,
+                default: None,
+            });
+        }
+
+        // Expect the lambda arrow :>
+        self.expect(TokenType::ShortArrow)?;
+
+        // Parse the lambda body
+        let body = self.parse_expression(0)?;
+
+        Ok(Expr::Lambda {
+            params,
+            body: Box::new(body),
+        })
+    }
 }
 
 // operator precedence table
@@ -1417,7 +1470,8 @@ pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
         "||" | "or" => Some((1, false)),
         "&&" | "and" => Some((2, false)),
         "==" | "!=" | "<" | "<=" | ">" | ">=" => Some((3, false)),
-        "|" => Some((4, false)), // pipeline or bitwise
+        "|>" => Some((11, false)), // pipeline operator (high precedence, left-assoc)
+        "|" => Some((4, false)), // bitwise or
         "^" => Some((5, false)),
         "&" => Some((6, false)),
         "<<" | ">>" => Some((7, false)),
