@@ -2,12 +2,16 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 
+// parser.rs
 use crate::ptypes::*;
 use crate::tokenizer::{Token, TokenType};
 use std::fmt;
 
+//
+// fmt::Display
+//
+
 impl fmt::Display for Item {
-    // note: print item in debug style
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Item::ModuleDecl(inner) => write!(f, "{:#?}", inner),
@@ -15,27 +19,30 @@ impl fmt::Display for Item {
             Item::Function(inner) => write!(f, "{:#?}", inner),
             Item::Struct(inner) => write!(f, "{:#?}", inner),
             Item::Enum(inner) => write!(f, "{:#?}", inner),
-            Item::Trait(inner) => write!(f, "{:#?}", inner),
-            Item::Impl(inner) => write!(f, "{:#?}", inner),
+            Item::Trait(inner) => write!(f, "{:#?}", inner), // MISSING!!!
+            Item::Impl(inner) => write!(f, "{:#?}", inner),  // MISSING!!!
             Item::Class(inner) => write!(f, "{:#?}", inner),
         }
     }
 }
 
+//
+// Parser
+//
 pub struct Parser {
     tokens: Vec<Token>,
     idx: usize,
 }
 
 impl Parser {
-    // note: make parser from token list
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, idx: 0 }
     }
 
-    // note: look at current token or fake EOF
+    // helpers
     fn peek(&self) -> &Token {
         self.tokens.get(self.idx).unwrap_or_else(|| {
+            // create a synthetic EOF Token (never owned by tokenizer, but handy)
             static EOF_TOKEN: Token = Token {
                 token_type: TokenType::EOF,
                 lexeme: String::new(),
@@ -46,12 +53,10 @@ impl Parser {
         })
     }
 
-    // note: stop when token is EOF
     fn is_at_end(&self) -> bool {
         matches!(self.peek().token_type, TokenType::EOF)
     }
 
-    // note: move index and return old token
     fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.idx += 1;
@@ -59,7 +64,6 @@ impl Parser {
         &self.tokens[self.idx.saturating_sub(1)]
     }
 
-    // note: require token type or fail
     fn expect(&mut self, expected: TokenType) -> ParseResult<Token> {
         let tok = self.peek().clone();
         if tok.token_type == expected {
@@ -73,17 +77,6 @@ impl Parser {
         }
     }
 
-    // note: create a generic parse error at current token
-    fn error_here(&self, message: impl Into<String>) -> ParseError {
-        let tok = self.peek();
-        ParseError::Generic {
-            message: message.into(),
-            line: tok.line,
-            column: tok.column,
-        }
-    }
-
-    // note: accept identifier or keyword as name
     fn expect_ident_like(&mut self) -> ParseResult<Token> {
         let tok = self.peek().clone();
         match tok.token_type {
@@ -96,7 +89,6 @@ impl Parser {
         }
     }
 
-    // note: require token type with exact text
     fn expect_nv(&mut self, expected: TokenType, v: &str) -> ParseResult<Token> {
         let tok = self.peek().clone();
         if tok.token_type == expected && tok.lexeme == v {
@@ -110,7 +102,6 @@ impl Parser {
         }
     }
 
-    // note: eat token by type if present
     fn match_one(&mut self, t: TokenType) -> bool {
         if self.peek().token_type == t {
             self.advance();
@@ -120,7 +111,6 @@ impl Parser {
         }
     }
 
-    // note: eat token by type and text
     fn match_tnv(&mut self, t: TokenType, ch: &str) -> bool {
         let token = self.peek();
         if (token.token_type == t) && (token.lexeme == ch) {
@@ -131,7 +121,8 @@ impl Parser {
         }
     }
 
-    // note: handle > or split >> for generics
+    // Match a single '>' operator, splitting a '>>' token into two '>' tokens when needed.
+    // This lets us parse nested generic types without breaking shift operators in expressions.
     fn match_gt(&mut self) -> bool {
         let tok = self.peek().clone();
         if tok.token_type == TokenType::Operator && tok.lexeme == ">" {
@@ -140,6 +131,7 @@ impl Parser {
         }
 
         if tok.token_type == TokenType::Operator && tok.lexeme == ">>" {
+            // Split ">>" into two ">" tokens at the current index.
             self.tokens[self.idx].lexeme = ">".to_string();
             let extra = Token::new(
                 TokenType::Operator,
@@ -155,7 +147,6 @@ impl Parser {
         false
     }
 
-    // note: require > with >> support
     fn expect_gt(&mut self) -> ParseResult<Token> {
         if self.match_gt() {
             Ok(self.tokens[self.idx.saturating_sub(1)].clone())
@@ -168,62 +159,7 @@ impl Parser {
         }
     }
 
-    // note: read all @attrs into list
-    fn parse_attributes(&mut self) -> Vec<String> {
-        let mut attributes = Vec::new();
-        while matches!(
-            self.peek().token_type,
-            TokenType::Attribute | TokenType::ParameterizedAttribute
-        ) {
-            attributes.push(self.advance().lexeme.clone());
-        }
-        attributes
-    }
-
-    // note: read visibility, default public
-    fn parse_visibility(&mut self) -> Visibility {
-        if self.match_tnv(TokenType::Keyword, "public") {
-            Visibility::Public
-        } else if self.match_tnv(TokenType::Keyword, "private") {
-            Visibility::Private
-        } else if self.match_tnv(TokenType::Keyword, "protected") {
-            Visibility::Protected
-        } else if self.match_tnv(TokenType::Keyword, "internal") {
-            Visibility::Internal
-        } else if self.match_tnv(TokenType::Keyword, "package") {
-            Visibility::Package
-        } else {
-            Visibility::Public
-        }
-    }
-
-    // note: parse comma list until end
-    fn parse_comma_separated<T, F, E>(
-        &mut self,
-        mut is_end: E,
-        mut parse_item: F,
-    ) -> ParseResult<Vec<T>>
-    where
-        F: FnMut(&mut Self) -> ParseResult<T>,
-        E: FnMut(&Token) -> bool,
-    {
-        let mut items = Vec::new();
-        while !self.is_at_end() && !is_end(self.peek()) {
-            let item = parse_item(self)?;
-            items.push(item);
-            if self.match_one(TokenType::Comma) {
-                if is_end(self.peek()) {
-                    break;
-                }
-                continue;
-            } else {
-                break;
-            }
-        }
-        Ok(items)
-    }
-
-    // note: parse whole file into items
+    // top-level parse entry
     pub fn parse_program(&mut self) -> ParseResult<Program> {
         let mut items = Vec::new();
         while !self.is_at_end() {
@@ -233,130 +169,88 @@ impl Parser {
         Ok(Program { items })
     }
 
-    // note: parse one top item with attrs
+    // In parser.rs, replace the entire `parse_item` method with this updated version:
     fn parse_item(&mut self) -> ParseResult<Item> {
-        let attributes = self.parse_attributes();
-
-        let mut visibility = None;
-        if self.peek().token_type == TokenType::Keyword {
-            let kw = self.peek().lexeme.as_str();
-            if matches!(
-                kw,
-                "public" | "private" | "protected" | "internal" | "package"
-            ) {
-                visibility = Some(self.parse_visibility());
-            }
+        // Parse leading attributes (common for functions, classes, etc.)
+        let mut attributes = Vec::new();
+        while self.peek().token_type == TokenType::Attribute
+            || self.peek().token_type == TokenType::ParameterizedAttribute
+        {
+            attributes.push(self.advance().lexeme.clone());
         }
 
+        // Now inspect the next token to decide what kind of item this is
         if self.peek().token_type != TokenType::Keyword {
-            return Err(self.error_here(format!(
+            return Err(ParseError::Generic(format!(
                 "Expected keyword after attributes, found {}",
                 self.peek()
             )));
         }
 
         let kw = self.peek().lexeme.clone();
-        if visibility.is_some() && !matches!(kw.as_str(), "fn" | "async") {
-            return Err(self.error_here(format!(
-                "Visibility modifier not allowed before {}",
-                kw
-            )));
-        }
-
         match kw.as_str() {
             "module" => {
                 self.advance();
                 let path = self.parse_module_path_string()?;
-                Ok(Item::ModuleDecl(ModuleDecl { attributes, path }))
+                Ok(Item::ModuleDecl(ModuleDecl { path }))
             }
             "import" => {
                 self.advance();
                 let (path, symbols) = self.parse_import()?;
-                Ok(Item::Import(ImportDecl {
-                    attributes,
-                    path,
-                    symbols,
-                }))
+                Ok(Item::Import(ImportDecl { path, symbols }))
             }
             "fn" | "async" => {
-                let vis = visibility.unwrap_or(Visibility::Public);
-                let func = self.parse_function_with(attributes, vis)?;
+                // Function (leading attributes already captured)
+                let mut func = self.parse_function()?;
+                func.attributes = attributes;
                 Ok(Item::Function(func))
             }
             "struct" => {
-                let s = self.parse_struct(attributes)?;
+                let s = self.parse_struct()?;
                 Ok(Item::Struct(s))
             }
             "enum" => {
-                let e = self.parse_enum(attributes)?;
+                let e = self.parse_enum()?;
                 Ok(Item::Enum(e))
             }
             "trait" => {
-                let t = self.parse_trait(attributes)?;
+                let t = self.parse_trait()?;
                 Ok(Item::Trait(t))
             }
             "impl" => {
-                let i = self.parse_impl(attributes)?;
+                let i = self.parse_impl()?;
                 Ok(Item::Impl(i))
             }
             "class" => {
-                let c = self.parse_class(attributes)?;
+                // Class (leading attributes ignored for now; ClassDecl has no field for them)
+                let c = self.parse_class()?;
                 Ok(Item::Class(c))
             }
-            _ => Err(self.error_here(format!(
+            _ => Err(ParseError::Generic(format!(
                 "Unsupported top-level keyword: {}",
                 kw
             ))),
         }
     }
 
-    // note: read extends/with/implements
-    fn parse_class_inheritance(
-        &mut self,
-    ) -> ParseResult<(Vec<TypeRef>, Vec<TypeRef>, Vec<TypeRef>)> {
-        let mut extends = Vec::new();
-        let mut mixins = Vec::new();
-        let mut implements = Vec::new();
-
-        let parse_types = |this: &mut Self| -> ParseResult<Vec<TypeRef>> {
-            let mut types = Vec::new();
-            types.push(this.parse_type()?);
-            while this.match_one(TokenType::Comma) {
-                types.push(this.parse_type()?);
-            }
-            Ok(types)
-        };
-
-        loop {
-            if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "extends" {
-                self.advance();
-                extends.extend(parse_types(self)?);
-                continue;
-            }
-            if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "with" {
-                self.advance();
-                mixins.extend(parse_types(self)?);
-                continue;
-            }
-            if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "implements" {
-                self.advance();
-                implements.extend(parse_types(self)?);
-                continue;
-            }
-            break;
-        }
-
-        Ok((extends, mixins, implements))
-    }
-
-    // note: parse class header and body
-    fn parse_class(&mut self, attributes: Vec<String>) -> ParseResult<ClassDecl> {
+    fn parse_class(&mut self) -> ParseResult<ClassDecl> {
         self.expect_nv(TokenType::Keyword, "class")?;
 
         let name_tok = self.expect_ident_like()?;
         let name = name_tok.lexeme;
 
-        let (extends, mixins, implements) = self.parse_class_inheritance()?;
+        while self.peek().token_type == TokenType::Keyword
+            && (self.peek().lexeme == "extends"
+                || self.peek().lexeme == "with"
+                || self.peek().lexeme == "implements")
+        {
+            self.advance();
+
+            let _ = self.parse_type()?;
+            while self.match_one(TokenType::Comma) {
+                let _ = self.parse_type()?;
+            }
+        }
 
         self.expect(TokenType::LeftBrace)?;
 
@@ -365,11 +259,10 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
-            let member_attributes = self.parse_attributes();
-            let member_visibility = self.parse_visibility();
+            let (attributes, vis) = self.parse_member_attributes_and_visibility()?;
 
             if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "init" {
-                let ctor = self.parse_constructor(member_attributes, member_visibility)?;
+                let ctor = self.parse_constructor(attributes, vis)?;
                 ctors.push(ctor);
                 if self.peek().token_type == TokenType::Comma
                     || self.peek().token_type == TokenType::Semicolon
@@ -382,7 +275,7 @@ impl Parser {
             if self.peek().token_type == TokenType::Keyword
                 && (self.peek().lexeme == "fn" || self.peek().lexeme == "async")
             {
-                let method = self.parse_function_with(member_attributes, member_visibility)?;
+                let method = self.parse_method(attributes, vis)?;
                 methods.push(method);
                 if self.peek().token_type == TokenType::Comma
                     || self.peek().token_type == TokenType::Semicolon
@@ -392,38 +285,42 @@ impl Parser {
                 continue;
             }
 
-            if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "mutable"
-                || self.peek().token_type == TokenType::Identifier
-            {
-                let mutable = self.match_tnv(TokenType::Keyword, "mutable");
-                let name_tok = self.expect(TokenType::Identifier)?;
-                self.expect(TokenType::Colon)?;
-                let typ = self.parse_type()?;
+            let is_field = (self.peek().token_type == TokenType::Keyword
+                && self.peek().lexeme == "mutable"
+                && self
+                    .tokens
+                    .get(self.idx + 1)
+                    .map_or(false, |t| t.token_type == TokenType::Identifier)
+                && self
+                    .tokens
+                    .get(self.idx + 2)
+                    .map_or(false, |t| t.token_type == TokenType::Colon))
+                || (self.peek().token_type == TokenType::Identifier
+                    && matches!(
+                        self.tokens.get(self.idx + 1),
+                        Some(t) if t.token_type == TokenType::Colon
+                    ))
+                || (self.peek().token_type == TokenType::Identifier
+                    && matches!(
+                        self.tokens.get(self.idx + 1),
+                        Some(t) if t.token_type == TokenType::Keyword && t.lexeme == "mutable"
+                    )
+                    && self
+                        .tokens
+                        .get(self.idx + 2)
+                        .map_or(false, |t| t.token_type == TokenType::Identifier)
+                    && self
+                        .tokens
+                        .get(self.idx + 3)
+                        .map_or(false, |t| t.token_type == TokenType::Colon));
 
-                let value = if self.match_tnv(TokenType::Operator, "=") {
-                    Some(self.parse_expression(0)?)
-                } else {
-                    None
-                };
-
-                if self.peek().token_type == TokenType::Comma
-                    || self.peek().token_type == TokenType::Semicolon
-                {
-                    self.advance();
-                }
-
-                fields.push(ClassFieldDecl {
-                    attributes: member_attributes,
-                    vis: member_visibility,
-                    mutable,
-                    name: name_tok.lexeme,
-                    typ,
-                    value,
-                });
+            if is_field {
+                let field = self.parse_class_field(attributes, vis)?;
+                fields.push(field);
                 continue;
             }
 
-            return Err(self.error_here(format!(
+            return Err(ParseError::Generic(format!(
                 "Unsupported member in class body: {}",
                 self.peek()
             )));
@@ -431,22 +328,74 @@ impl Parser {
 
         self.expect(TokenType::RightBrace)?;
         Ok(ClassDecl {
-            attributes,
             name,
-            extends,
-            mixins,
-            implements,
             fields,
             ctors,
             methods,
         })
     }
 
-    // note: parse init with params and block
-    fn parse_constructor(
+    fn parse_member_attributes_and_visibility(&mut self) -> ParseResult<(Vec<String>, Visibility)> {
+        let mut attributes = Vec::new();
+        while self.peek().token_type == TokenType::Attribute
+            || self.peek().token_type == TokenType::ParameterizedAttribute
+        {
+            attributes.push(self.advance().lexeme.clone());
+        }
+
+        let vis = if self.match_tnv(TokenType::Keyword, "public") {
+            Visibility::Public
+        } else if self.match_tnv(TokenType::Keyword, "private") {
+            Visibility::Private
+        } else if self.match_tnv(TokenType::Keyword, "protected") {
+            Visibility::Protected
+        } else if self.match_tnv(TokenType::Keyword, "internal") {
+            Visibility::Internal
+        } else if self.match_tnv(TokenType::Keyword, "package") {
+            Visibility::Package
+        } else {
+            Visibility::Public
+        };
+
+        Ok((attributes, vis))
+    }
+
+    fn parse_class_field(
         &mut self,
         attributes: Vec<String>,
-        visibility: Visibility,
+        vis: Visibility,
+    ) -> ParseResult<ClassFieldDecl> {
+        let mutable = self.match_tnv(TokenType::Keyword, "mutable");
+        let name_tok = self.expect(TokenType::Identifier)?;
+        self.expect(TokenType::Colon)?;
+        let typ = self.parse_type()?;
+
+        let value = if self.match_tnv(TokenType::Operator, "=") {
+            Some(self.parse_expression(0)?)
+        } else {
+            None
+        };
+
+        if self.peek().token_type == TokenType::Comma
+            || self.peek().token_type == TokenType::Semicolon
+        {
+            self.advance();
+        }
+
+        Ok(ClassFieldDecl {
+            attributes,
+            vis,
+            mutable,
+            name: name_tok.lexeme,
+            typ,
+            value,
+        })
+    }
+
+    fn parse_constructor(
+        &mut self,
+        _attributes: Vec<String>,
+        _vis: Visibility,
     ) -> ParseResult<ConstructorDecl> {
         self.expect_nv(TokenType::Keyword, "init")?;
 
@@ -457,43 +406,58 @@ impl Parser {
         };
 
         self.expect(TokenType::LeftParen)?;
-        let params = self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightParen,
-            |this| {
-                let pattern = this.parse_pattern()?;
-                let mut typ = None;
-                if this.match_one(TokenType::Colon) {
-                    typ = Some(this.parse_type()?);
-                }
-                let mut default = None;
-                if this.match_tnv(TokenType::Operator, "=") {
-                    default = Some(this.parse_expression(0)?);
-                }
-                Ok(Param {
-                    pattern,
-                    typ,
-                    default,
-                })
-            },
-        )?;
+        let mut params = Vec::new();
+        while self.peek().token_type != TokenType::RightParen {
+            let pattern = self.parse_pattern()?;
+            let mut typ = None;
+            if self.match_one(TokenType::Colon) {
+                typ = Some(self.parse_type()?);
+            }
+            let mut default = None;
+            if self.match_tnv(TokenType::Operator, "=") {
+                default = Some(self.parse_expression(0)?);
+            }
+            params.push(Param {
+                pattern,
+                typ,
+                default,
+            });
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
         self.expect(TokenType::RightParen)?;
 
         if self.peek().token_type != TokenType::LeftBrace {
-            return Err(self.error_here("Constructors must have a block body".into()));
+            return Err(ParseError::Generic(
+                "Constructors must have a block body".into(),
+            ));
         }
         let body = self.parse_block()?;
 
         Ok(ConstructorDecl {
-            attributes,
-            visibility,
             name: ctor_name,
             params,
             body,
         })
     }
 
-    // note: read ModulePath or ident::ident
+    fn parse_method(
+        &mut self,
+        attributes: Vec<String>,
+        visibility: Visibility,
+    ) -> ParseResult<FunctionDecl> {
+        let mut f = self.parse_function()?;
+        f.attributes = attributes;
+        f.visibility = visibility;
+        Ok(f)
+    }
+
+    // parse module path like App::Hello or Identifier or ModulePath token
     fn parse_module_path_string(&mut self) -> ParseResult<String> {
+        // tokenizer already produces ModulePath token; accept it or build from ident+::...
         let tok = self.peek().clone();
         match tok.token_type {
             TokenType::ModulePath => {
@@ -519,14 +483,25 @@ impl Parser {
         }
     }
 
-    // note: parse import path and symbols
     fn parse_import(&mut self) -> ParseResult<(String, Option<Vec<String>>)> {
+        // simple import: import Core::{List, Option}
         let path = self.parse_module_path_string()?;
+        if self.match_one(TokenType::Colon) || self.peek().token_type == TokenType::DoubleColon {
+            // if tokenizer uses DoubleColon token type, handle above
+            // but we already consumed path; check for `{`
+        }
+        // optional symbols block
         if self.match_one(TokenType::LeftBrace) {
-            let syms = self.parse_comma_separated(
-                |tok| tok.token_type == TokenType::RightBrace,
-                |this| Ok(this.expect(TokenType::Identifier)?.lexeme),
-            )?;
+            let mut syms = Vec::new();
+            loop {
+                let id_tok = self.expect(TokenType::Identifier)?;
+                syms.push(id_tok.lexeme);
+                if self.match_one(TokenType::Comma) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
             self.expect(TokenType::RightBrace)?;
             Ok((path, Some(syms)))
         } else {
@@ -534,78 +509,102 @@ impl Parser {
         }
     }
 
-    // note: parse fn with given attrs+vis
-    fn parse_function_with(
-        &mut self,
-        attributes: Vec<String>,
-        visibility: Visibility,
-    ) -> ParseResult<FunctionDecl> {
+    fn parse_function(&mut self) -> ParseResult<FunctionDecl> {
+        let mut attributes = Vec::new();
+        let mut visibility = Visibility::Public; // Default visibility
         let mut modifiers = Vec::new();
-        let mut is_async = false;
 
+        // Parse attributes
+        while self.peek().token_type == TokenType::Attribute
+            || self.peek().token_type == TokenType::ParameterizedAttribute
+        {
+            attributes.push(self.advance().lexeme.clone());
+        }
+
+        // Parse visibility modifier
+        if self.match_tnv(TokenType::Keyword, "public") {
+            visibility = Visibility::Public;
+        } else if self.match_tnv(TokenType::Keyword, "private") {
+            visibility = Visibility::Private;
+        }
+        // Add other visibility modifiers...
+
+        // Parse async modifier
+        let mut is_async = false;
         if self.match_tnv(TokenType::Keyword, "async") {
             modifiers.push(FunctionModifier::Async);
             is_async = true;
         }
 
-        self.expect_nv(TokenType::Keyword, "fn")?;
+        // Parse function keyword (check for multidispatch)
+        let fn_tok = self.expect(TokenType::Keyword)?;
 
         if self.match_tnv(TokenType::Operator, "+") {
             modifiers.push(FunctionModifier::Multidispatch);
         }
 
+        // Parse function name (allow keywords as identifiers, e.g. fn merge)
         let name_tok = self.expect_ident_like()?;
         let name = name_tok.lexeme.clone();
 
+        // Parse generics
         let generics = if self.match_tnv(TokenType::Operator, "<") {
             self.parse_generics()?
         } else {
             Vec::new()
         };
 
+        // params
         self.expect(TokenType::LeftParen)?;
-        let params = self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightParen,
-            |this| {
-                let pattern = this.parse_pattern()?;
-                let mut typ = None;
-                if this.match_one(TokenType::Colon) {
-                    typ = Some(this.parse_type()?);
-                }
-                let mut default = None;
-                if this.match_tnv(TokenType::Operator, "=") {
-                    default = Some(this.parse_expression(0)?);
-                }
-                Ok(Param {
-                    pattern,
-                    typ,
-                    default,
-                })
-            },
-        )?;
+        let mut params = Vec::new();
+        while self.peek().token_type != TokenType::RightParen {
+            let pattern = self.parse_pattern()?; // Changed from expect Identifier
+            let mut typ = None;
+            if self.match_one(TokenType::Colon) {
+                typ = Some(self.parse_type()?);
+            }
+            let mut default = None;
+            if self.match_tnv(TokenType::Operator, "=") {
+                default = Some(self.parse_expression(0)?);
+            }
+            params.push(Param {
+                pattern,
+                typ,
+                default,
+            });
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
         self.expect(TokenType::RightParen)?;
 
-        let ret_type = if self.match_one(TokenType::FatArrow) {
-            Some(self.parse_type()?)
-        } else {
-            None
-        };
+        // Parse return type
+        let mut ret_type = None;
+        if self.match_one(TokenType::FatArrow) {
+            ret_type = Some(self.parse_type()?);
+        }
 
+        // Parse effects
         let effects = if self.match_one(TokenType::EffectMarker) {
             self.parse_effects()?
         } else {
             Vec::new()
         };
 
+        // Parse where clauses
         let where_clauses = if self.match_tnv(TokenType::Keyword, "where") {
             self.parse_where_clauses()?
         } else {
             Vec::new()
         };
 
+        // Parse body
         let body = if self.match_one(TokenType::ShortArrow) {
+            // self.advance();
             Some(Block {
-                stmts: vec![Stmt::Return(Some(self.parse_expression(0)?))],
+                stmts: vec![Stmt::Return(Some(self.parse_expression(0).unwrap()))],
             })
         } else if self.peek().token_type == TokenType::LeftBrace {
             Some(self.parse_block()?)
@@ -628,15 +627,10 @@ impl Parser {
         })
     }
 
-    // note: parse generic params
     fn parse_generics(&mut self) -> ParseResult<Vec<GenericParam>> {
         let mut generics = Vec::new();
-        if self.peek().token_type == TokenType::Operator && self.peek().lexeme == ">" {
-            self.expect_gt()?;
-            return Ok(generics);
-        }
 
-        loop {
+        while !self.is_at_end() && !self.match_gt() {
             let name_tok = self.expect(TokenType::Identifier)?;
             let mut constraints = Vec::new();
 
@@ -650,19 +644,13 @@ impl Parser {
             });
 
             if self.match_one(TokenType::Comma) {
-                if self.peek().token_type == TokenType::Operator && self.peek().lexeme == ">" {
-                    break;
-                }
                 continue;
             }
-            break;
         }
 
-        self.expect_gt()?;
         Ok(generics)
     }
 
-    // note: parse effect list
     fn parse_effects(&mut self) -> ParseResult<Vec<Effect>> {
         let mut effects = Vec::new();
 
@@ -688,7 +676,6 @@ impl Parser {
         Ok(effects)
     }
 
-    // note: parse constraint list
     fn parse_type_constraints(&mut self) -> ParseResult<Vec<TypeConstraint>> {
         let mut constraints = Vec::new();
 
@@ -699,24 +686,30 @@ impl Parser {
                 TokenType::Identifier => {
                     let ident = self.advance().lexeme.clone();
 
+                    // Check for trait bounds or other constraints
                     if self.match_tnv(TokenType::Operator, "=") {
+                        // Type equality constraint: T = Type
                         let type_ref = self.parse_type()?;
                         constraints.push(TypeConstraint::TypeEq(ident, type_ref.name));
                     } else if self.match_one(TokenType::Colon) {
+                        // Trait bound: T: Trait
                         let trait_name = self.expect(TokenType::Identifier)?.lexeme;
                         constraints.push(TypeConstraint::TraitBound(format!(
                             "{}:{}",
                             ident, trait_name
                         )));
                     } else if self.match_tnv(TokenType::Keyword, "subtype") {
-                        self.expect_nv(TokenType::Keyword, "of")?;
+                        // Subtype constraint: T subtype of U
+                        self.expect(TokenType::Keyword)?; // "of"
                         let supertype = self.parse_type()?;
                         constraints.push(TypeConstraint::SubtypeOf(supertype.name));
                     } else {
+                        // Simple trait bound
                         constraints.push(TypeConstraint::TraitBound(ident));
                     }
                 }
                 TokenType::Keyword if tok.lexeme == "lifetime" => {
+                    // Lifetime bound: 'a
                     self.advance();
                     let lifetime = self.expect(TokenType::Identifier)?.lexeme;
                     constraints.push(TypeConstraint::LifetimeBound(lifetime));
@@ -724,6 +717,7 @@ impl Parser {
                 _ => break,
             }
 
+            // Check for additional constraints
             if !self.match_tnv(TokenType::Operator, "+") {
                 break;
             }
@@ -732,15 +726,23 @@ impl Parser {
         Ok(constraints)
     }
 
-    // note: parse effect param types
     fn parse_effect_params(&mut self) -> ParseResult<Vec<TypeRef>> {
-        self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightParen,
-            |this| this.parse_type(),
-        )
+        let mut params = Vec::new();
+
+        while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+            let type_ref = self.parse_type()?;
+            params.push(type_ref);
+
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        Ok(params)
     }
 
-    // note: parse where constraints
     fn parse_where_clauses(&mut self) -> ParseResult<Vec<WhereClause>> {
         let mut clauses = Vec::new();
 
@@ -766,32 +768,30 @@ impl Parser {
         Ok(clauses)
     }
 
-    // note: parse struct declaration
-    fn parse_struct(&mut self, attributes: Vec<String>) -> ParseResult<StructDecl> {
-        self.expect_nv(TokenType::Keyword, "struct")?;
+    fn parse_struct(&mut self) -> ParseResult<StructDecl> {
+        self.expect(TokenType::Keyword)?; // 'struct'
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
         self.expect(TokenType::LeftBrace)?;
-        let fields = self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightBrace,
-            |this| {
-                let field_name = this.expect(TokenType::Identifier)?.lexeme;
-                this.expect(TokenType::Colon)?;
-                let typ = this.parse_type()?;
-                Ok((field_name, typ))
-            },
-        )?;
+        let mut fields = Vec::new();
+        while self.peek().token_type != TokenType::RightBrace {
+            let field_name_tok = self.expect(TokenType::Identifier)?;
+            let field_name = field_name_tok.lexeme.clone();
+            self.expect(TokenType::Colon)?;
+            let typ = self.parse_type()?;
+            fields.push((field_name, typ));
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
+        }
         self.expect(TokenType::RightBrace)?;
-        Ok(StructDecl {
-            attributes,
-            name,
-            fields,
-        })
+        Ok(StructDecl { name, fields })
     }
 
-    // note: parse enum with variants
-    fn parse_enum(&mut self, attributes: Vec<String>) -> ParseResult<EnumDecl> {
-        self.expect_nv(TokenType::Keyword, "enum")?;
+    fn parse_enum(&mut self) -> ParseResult<EnumDecl> {
+        self.expect(TokenType::Keyword)?; // 'enum'
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
 
@@ -810,45 +810,75 @@ impl Parser {
 
             let kind = if self.peek().token_type == TokenType::LeftBrace {
                 self.advance();
-                let fields = self.parse_comma_separated(
-                    |tok| tok.token_type == TokenType::RightBrace,
-                    |this| {
-                        let field_name = this.expect(TokenType::Identifier)?.lexeme;
-                        this.expect(TokenType::Colon)?;
-                        let typ = this.parse_type()?;
-                        Ok(EnumVariantField {
-                            name: Some(field_name),
-                            typ,
-                        })
-                    },
-                )?;
+                let mut fields = Vec::new();
+                while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+                    let field_name_tok = self.expect(TokenType::Identifier)?;
+                    self.expect(TokenType::Colon)?;
+                    let typ = self.parse_type()?;
+                    fields.push(EnumVariantField {
+                        name: Some(field_name_tok.lexeme),
+                        typ,
+                    });
+
+                    if self.match_one(TokenType::Comma) {
+                        if self.peek().token_type == TokenType::RightBrace {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if self.peek().token_type == TokenType::RightBrace {
+                        break;
+                    }
+
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "Comma or RightBrace".into(),
+                        found: self.peek().clone(),
+                        idx: self.idx,
+                    });
+                }
                 self.expect(TokenType::RightBrace)?;
                 VariantKind::Struct(fields)
             } else if self.peek().token_type == TokenType::LeftParen {
                 self.advance();
-                let fields = self.parse_comma_separated(
-                    |tok| tok.token_type == TokenType::RightParen,
-                    |this| {
-                        let is_named = this.peek().token_type == TokenType::Identifier
-                            && matches!(
-                                this.tokens.get(this.idx + 1),
-                                Some(t) if t.token_type == TokenType::Colon
-                            );
+                let mut fields = Vec::new();
+                while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+                    let is_named = self.peek().token_type == TokenType::Identifier
+                        && matches!(
+                            self.tokens.get(self.idx + 1),
+                            Some(t) if t.token_type == TokenType::Colon
+                        );
 
-                        if is_named {
-                            let field_name = this.expect(TokenType::Identifier)?.lexeme;
-                            this.expect(TokenType::Colon)?;
-                            let typ = this.parse_type()?;
-                            Ok(EnumVariantField {
-                                name: Some(field_name),
-                                typ,
-                            })
-                        } else {
-                            let typ = this.parse_type()?;
-                            Ok(EnumVariantField { name: None, typ })
+                    if is_named {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+                        self.expect(TokenType::Colon)?;
+                        let typ = self.parse_type()?;
+                        fields.push(EnumVariantField {
+                            name: Some(field_name),
+                            typ,
+                        });
+                    } else {
+                        let typ = self.parse_type()?;
+                        fields.push(EnumVariantField { name: None, typ });
+                    }
+
+                    if self.match_one(TokenType::Comma) {
+                        if self.peek().token_type == TokenType::RightParen {
+                            break;
                         }
-                    },
-                )?;
+                        continue;
+                    }
+
+                    if self.peek().token_type == TokenType::RightParen {
+                        break;
+                    }
+
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "Comma or RightParen".into(),
+                        found: self.peek().clone(),
+                        idx: self.idx,
+                    });
+                }
                 self.expect(TokenType::RightParen)?;
                 VariantKind::Tuple(fields)
             } else {
@@ -868,16 +898,15 @@ impl Parser {
 
         self.expect(TokenType::RightBrace)?;
         Ok(EnumDecl {
-            attributes,
             name,
             generics,
             variants,
         })
     }
 
-    // note: parse trait with methods
-    fn parse_trait(&mut self, attributes: Vec<String>) -> ParseResult<TraitDecl> {
-        self.expect_nv(TokenType::Keyword, "trait")?;
+    fn parse_trait(&mut self) -> ParseResult<TraitDecl> {
+        // We already matched the "trait" keyword in parse_item
+        self.expect(TokenType::Keyword)?; // 'trait'
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
 
@@ -885,32 +914,32 @@ impl Parser {
         let mut methods = Vec::new();
 
         while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
-            let method_attributes = self.parse_attributes();
-            let method_visibility = self.parse_visibility();
-            let func = self.parse_function_with(method_attributes, method_visibility)?;
+            let func = self.parse_function()?;
             methods.push(func);
         }
 
         self.expect(TokenType::RightBrace)?;
 
-        Ok(TraitDecl {
-            attributes,
-            name,
-            methods,
-        })
+        Ok(TraitDecl { name, methods })
     }
 
-    // note: parse impl block
-    fn parse_impl(&mut self, attributes: Vec<String>) -> ParseResult<ImplDecl> {
-        self.expect_nv(TokenType::Keyword, "impl")?;
+    fn parse_impl(&mut self) -> ParseResult<ImplDecl> {
+        // We already matched the "impl" keyword in parse_item
+        self.expect(TokenType::Keyword)?; // 'impl'
 
+        // First type after `impl` can be either the target type (inherent impl)
+        // or the trait name (trait impl). We parse a full TypeRef and
+        // then check for a following `for` keyword.
         let first_type = self.parse_type()?;
 
         let (trait_name, target) = if self.match_tnv(TokenType::Keyword, "for") {
+            // Trait impl: `impl Trait for Type { ... }`
+            // We only store the trait's name string in the AST.
             let trait_name = Some(first_type.name.clone());
             let target = self.parse_type()?;
             (trait_name, target)
         } else {
+            // Inherent impl: `impl Type { ... }`
             (None, first_type)
         };
 
@@ -918,32 +947,29 @@ impl Parser {
         let mut methods = Vec::new();
 
         while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
-            let method_attributes = self.parse_attributes();
-            let method_visibility = self.parse_visibility();
-            let func = self.parse_function_with(method_attributes, method_visibility)?;
+            let func = self.parse_function()?;
             methods.push(func);
         }
 
         self.expect(TokenType::RightBrace)?;
 
         Ok(ImplDecl {
-            attributes,
             trait_name,
             target,
             methods,
         })
     }
 
-    // note: parse block and track lets
     fn parse_block(&mut self) -> ParseResult<Block> {
         self.expect(TokenType::LeftBrace)?;
         let mut stmts = Vec::new();
-        // note: collect let names for auto delete
-        let mut let_names = Vec::new();
+        let mut let_names = Vec::new(); // Track variable names defined with let
         while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
             let s = self.parse_statement()?;
-
+            // If this is a let statement, track the variable name for auto-delete
+            // Borrow `s` here so we don't move out of it before pushing to `stmts`.
             if let Stmt::Let { pattern, .. } = &s {
+                // Extract identifier from pattern if it's a simple identifier
                 if let PatternKind::Identifier(name) = &pattern.kind {
                     let_names.push(name.clone());
                 }
@@ -951,8 +977,7 @@ impl Parser {
             stmts.push(s);
         }
         self.expect(TokenType::RightBrace)?;
-
-        // note: append delete statements at block end
+        // Auto-delete variables defined in this scope
         for name in let_names {
             stmts.push(Stmt::Delete {
                 expr: Expr::Ident(name),
@@ -961,7 +986,6 @@ impl Parser {
         Ok(Block { stmts })
     }
 
-    // note: parse block or short expr
     fn parse_block_or_expr_body(&mut self) -> ParseResult<Block> {
         if self.peek().token_type == TokenType::LeftBrace {
             return self.parse_block();
@@ -977,34 +1001,47 @@ impl Parser {
         })
     }
 
-    // note: avoid struct literal before block
-    fn parse_expr_with_struct_literal_guard(
-        &mut self,
-        allow_struct_literal: bool,
-    ) -> ParseResult<Expr> {
-        if !allow_struct_literal {
-            // note: keep ident { ... } from turning into struct literal
-            let tok = self.peek().clone();
-            if matches!(
-                tok.token_type,
-                TokenType::Identifier
-                    | TokenType::ModulePath
-                    | TokenType::Keyword
-                    | TokenType::IGMKeyword
-            ) && matches!(
-                self.tokens.get(self.idx + 1),
-                Some(t) if t.token_type == TokenType::LeftBrace
-            ) {
-                let ident = self.advance().lexeme.clone();
-                let expr = Expr::Ident(ident);
-                return self.parse_postfix(expr);
-            }
+    fn parse_watch_variable_expr(&mut self) -> ParseResult<Expr> {
+        // Avoid ambiguity with struct literal parsing: in `watch a, b { ... }`,
+        // the `{` belongs to the watch body, not to `b { ... }`.
+        let tok = self.peek().clone();
+        if matches!(
+            tok.token_type,
+            TokenType::Identifier | TokenType::ModulePath
+        ) && matches!(
+            self.tokens.get(self.idx + 1),
+            Some(t) if t.token_type == TokenType::LeftBrace
+        ) {
+            let ident = self.advance().lexeme.clone();
+            let expr = Expr::Ident(ident);
+            return self.parse_postfix(expr);
         }
 
         self.parse_expression(0)
     }
 
-    // note: parse let statement
+    fn parse_expr_no_struct_literal_before_block(&mut self) -> ParseResult<Expr> {
+        // Used in contexts like `in context <target> { ... }` where
+        // `<target> { ... }` must NOT be parsed as a struct literal.
+        let tok = self.peek().clone();
+        if matches!(
+            tok.token_type,
+            TokenType::Identifier
+                | TokenType::ModulePath
+                | TokenType::Keyword
+                | TokenType::IGMKeyword
+        ) && matches!(
+            self.tokens.get(self.idx + 1),
+            Some(t) if t.token_type == TokenType::LeftBrace
+        ) {
+            let ident = self.advance().lexeme.clone();
+            let expr = Expr::Ident(ident);
+            return self.parse_postfix(expr);
+        }
+
+        self.parse_expression(0)
+    }
+
     fn parse_let_stmt(&mut self) -> ParseResult<Stmt> {
         self.advance();
         let mutable = (!self.is_at_end() && self.match_tnv(TokenType::Operator, "~"))
@@ -1021,6 +1058,7 @@ impl Parser {
             expr = Some(self.parse_expression(0)?);
         }
 
+        // optional semicolon
         if self.peek().token_type == TokenType::Semicolon {
             self.advance();
         }
@@ -1032,7 +1070,6 @@ impl Parser {
         })
     }
 
-    // note: parse try/catch statement
     fn parse_try_catch_stmt(&mut self) -> ParseResult<Stmt> {
         self.expect_nv(TokenType::Keyword, "try")?;
         let try_block = self.parse_block()?;
@@ -1055,7 +1092,6 @@ impl Parser {
         })
     }
 
-    // note: parse any statement
     fn parse_statement(&mut self) -> ParseResult<Stmt> {
         if self.peek().lexeme == "in"
             && matches!(
@@ -1076,7 +1112,7 @@ impl Parser {
         }
 
         match self.peek().lexeme.as_str() {
-            "let" => self.parse_let_stmt(),
+            "let" => self.parse_let_stmt(), // uses separated method 'cuz there are other 'let' usages eg. in joins stmt
             "try" => self.parse_try_catch_stmt(),
             "continue" => {
                 self.expect_nv(TokenType::Keyword, "continue")?;
@@ -1131,8 +1167,9 @@ impl Parser {
                 let pat_tok = self.expect(TokenType::Identifier)?;
                 let pat = pat_tok.lexeme.clone();
                 self.expect_nv(TokenType::Keyword, "in")?;
-
-                let iter = self.parse_expr_with_struct_literal_guard(false)?;
+                // Use special helper to avoid interpreting `<iter> {` as a struct literal
+                // in constructs like `for x in xs { ... }`.
+                let iter = self.parse_expr_no_struct_literal_before_block()?;
 
                 let body = if self.match_one(TokenType::ShortArrow) {
                     self.parse_block_or_expr_body()?
@@ -1217,7 +1254,7 @@ impl Parser {
 
                 let mut variables = Vec::new();
                 loop {
-                    variables.push(self.parse_expr_with_struct_literal_guard(false)?);
+                    variables.push(self.parse_watch_variable_expr()?);
                     if self.match_one(TokenType::Comma) {
                         continue;
                     } else {
@@ -1278,7 +1315,7 @@ impl Parser {
                 })
             }
             "atomically" => {
-                self.expect(TokenType::Keyword)?;
+                self.expect(TokenType::Keyword)?; // 'atomically'
                 let body = self.parse_block()?;
                 Ok(Stmt::Atomically { body })
             }
@@ -1339,6 +1376,7 @@ impl Parser {
                 self.expect(TokenType::Keyword)?;
                 let expr = self.parse_expression(0)?;
 
+                // optional semicolon, 'cuz this one doesn't have block
                 if self.peek().token_type == TokenType::Semicolon {
                     self.advance();
                 }
@@ -1361,6 +1399,7 @@ impl Parser {
                 Ok(Stmt::Joins { decls, body })
             }
             _ => {
+                // expression statement
                 let expr = self.parse_expression(0)?;
                 if self.peek().token_type == TokenType::Semicolon {
                     self.advance();
@@ -1370,7 +1409,6 @@ impl Parser {
         }
     }
 
-    // note: parse in context block
     fn parse_in_context_stmt(&mut self) -> ParseResult<Stmt> {
         self.expect_nv(TokenType::Keyword, "in")?;
         if self.peek().lexeme == "context" {
@@ -1382,7 +1420,7 @@ impl Parser {
                 idx: self.idx,
             });
         }
-        let target = self.parse_expr_with_struct_literal_guard(false)?;
+        let target = self.parse_expr_no_struct_literal_before_block()?;
         self.expect(TokenType::LeftBrace)?;
 
         let mut arms = Vec::new();
@@ -1397,7 +1435,6 @@ impl Parser {
         Ok(Stmt::InContext { target, arms })
     }
 
-    // note: parse on sequence block
     fn parse_on_sequence_stmt(&mut self) -> ParseResult<Stmt> {
         self.expect_nv(TokenType::Keyword, "on")?;
         self.expect_nv(TokenType::Keyword, "sequence")?;
@@ -1416,11 +1453,14 @@ impl Parser {
         })
     }
 
-    // note: Pratt expression parse
+    // ---- Expression parsing (Pratt-style with precedence table) ----
+    // This is simplified: operator detection uses token.lexeme for operator symbol,
+    // and uses token.token_type for categories where helpful.
     fn parse_expression(&mut self, min_prec: u8) -> ParseResult<Expr> {
         let mut left = self.parse_unary_or_primary()?;
 
         loop {
+            // if at end or token isn't an operator, break
             let op_tok = self.peek().clone();
             let (prec, right_assoc) = match op_precedence(&op_tok) {
                 Some((p, ra)) => (p, ra),
@@ -1431,6 +1471,7 @@ impl Parser {
                 break;
             }
 
+            // consume operator
             let op_lex = self.advance().lexeme.clone();
 
             if op_lex == "?" {
@@ -1441,6 +1482,7 @@ impl Parser {
             let next_min = if right_assoc { prec } else { prec + 1 };
             let right = self.parse_expression(next_min)?;
 
+            // Handle pipeline operator specially
             if op_lex == "|>" {
                 left = Expr::Pipeline {
                     left: Box::new(left),
@@ -1458,8 +1500,9 @@ impl Parser {
         Ok(left)
     }
 
-    // note: unary then primary+postfix
+    // Update parse_unary_or_primary to include postfix parsing
     fn parse_unary_or_primary(&mut self) -> ParseResult<Expr> {
+        // Handle unary operators first
         let tok = self.peek().clone();
 
         if tok.token_type == TokenType::Keyword {
@@ -1479,7 +1522,7 @@ impl Parser {
         if matches!(tok.token_type, TokenType::Operator) {
             if tok.lexeme == "-" || tok.lexeme == "+" || tok.lexeme == "!" || tok.lexeme == "not" {
                 let op = self.advance().lexeme.clone();
-                let rhs = self.parse_expression(100)?;
+                let rhs = self.parse_expression(100)?; // high prec for unary
                 return Ok(Expr::Unary {
                     op,
                     rhs: Box::new(rhs),
@@ -1487,16 +1530,16 @@ impl Parser {
             }
         }
 
+        // Parse primary expression and then apply postfix operations
         let primary = self.parse_primary()?;
         self.parse_postfix(primary)
     }
 
-    // note: parse literals, ids, groups
     fn parse_primary(&mut self) -> ParseResult<Expr> {
         let tok = self.peek().clone();
         match tok.token_type {
             TokenType::LambdaArrow => {
-                self.advance();
+                self.advance(); // consume '\\'
                 self.parse_lambda()
             }
             TokenType::IntLiteral => {
@@ -1546,19 +1589,39 @@ impl Parser {
             | TokenType::IGMKeyword => {
                 let ident = self.advance().lexeme.clone();
                 if self.peek().token_type == TokenType::LeftBrace {
-                    self.advance();
-                    let fields = self.parse_struct_fields()?;
+                    // Struct literal: Ident { field: expr, ... }
+                    self.advance(); // consume '{'
+                    let mut fields = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+                        self.expect(TokenType::Colon)?;
+                        let field_expr = self.parse_expression(0)?;
+                        fields.push((field_name, field_expr));
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBrace)?;
                     Ok(Expr::Literal(Literal::Struct {
                         name: ident,
                         base: None,
                         fields,
                     }))
                 } else if ident == "v" && self.peek().token_type == TokenType::LeftBracket {
-                    self.advance();
-                    let elements = self.parse_comma_separated(
-                        |tok| tok.token_type == TokenType::RightBracket,
-                        |this| this.parse_expression(0),
-                    )?;
+                    // Vector literal: v[expr, expr, ...]
+                    self.advance(); // consume '['
+                    let mut elements = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBracket {
+                        let elem = self.parse_expression(0)?;
+                        elements.push(elem);
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
                     self.expect(TokenType::RightBracket)?;
                     Ok(Expr::Literal(Literal::Vector(elements)))
                 } else {
@@ -1566,7 +1629,7 @@ impl Parser {
                 }
             }
             TokenType::LeftParen => {
-                self.advance();
+                self.advance(); // consume '('
                 let mut exprs = Vec::new();
                 let mut trailing_comma = false;
                 while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
@@ -1588,7 +1651,7 @@ impl Parser {
                 }
             }
             TokenType::LeftBracket => {
-                self.advance();
+                self.advance(); // consume '['
                 if self.peek().token_type == TokenType::RightBracket {
                     self.advance();
                     return Ok(Expr::Literal(Literal::Array(Vec::new())));
@@ -1596,8 +1659,8 @@ impl Parser {
 
                 let first_expr = self.parse_expression(0)?;
 
+                // List comprehension: [expr | pattern <- iter, guard]
                 if self.match_one(TokenType::Pipe) {
-                    // note: list comp: [expr | pat <- iter, guard]
                     let pattern = self.parse_pattern()?;
                     self.expect_nv(TokenType::Operator, "<-")?;
                     let iter = self.parse_expression(0)?;
@@ -1616,6 +1679,7 @@ impl Parser {
                         guard,
                     })
                 } else {
+                    // Normal array literal: [a, b, c]
                     let mut elements = vec![first_expr];
                     while self.match_one(TokenType::Comma) {
                         if self.peek().token_type == TokenType::RightBracket {
@@ -1636,21 +1700,34 @@ impl Parser {
         }
     }
 
-    // note: parse calls, fields, index, update
     fn parse_postfix(&mut self, left: Expr) -> ParseResult<Expr> {
         let mut expr = left;
         loop {
             match self.peek().token_type {
                 TokenType::Dot => {
-                    self.advance();
+                    self.advance(); // consume '.'
                     let field_or_method = self.expect(TokenType::Identifier)?.lexeme;
                     let mut generics = Vec::new();
                     if self.peek().token_type == TokenType::Operator && self.peek().lexeme == "<" {
-                        self.advance();
-                        generics = self.parse_generic_args()?;
+                        self.advance(); // <
+                        if self.peek().token_type != TokenType::Operator
+                            || self.peek().lexeme != ">"
+                        {
+                            loop {
+                                let typ = self.parse_type()?;
+                                generics.push(typ);
+                                if self.match_one(TokenType::Comma) {
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        self.expect_nv(TokenType::Operator, ">")?; // >
                     }
                     if self.peek().token_type == TokenType::LeftParen {
-                        self.advance();
+                        // Method call (with or without generics)
+                        self.advance(); // (
                         let args = self.parse_arguments()?;
                         self.expect(TokenType::RightParen)?;
                         expr = Expr::MethodCall {
@@ -1660,8 +1737,9 @@ impl Parser {
                             args,
                         };
                     } else {
+                        // Field access (error if generics were parsed but no call)
                         if !generics.is_empty() {
-                            return Err(self.error_here(
+                            return Err(ParseError::Generic(
                                 "Unexpected generics without method call".into(),
                             ));
                         }
@@ -1672,7 +1750,8 @@ impl Parser {
                     }
                 }
                 TokenType::LeftBracket => {
-                    self.advance();
+                    // Index access
+                    self.advance(); // [
                     let index_expr = self.parse_expression(0)?;
                     self.expect(TokenType::RightBracket)?;
                     expr = Expr::Index {
@@ -1681,7 +1760,9 @@ impl Parser {
                     };
                 }
                 TokenType::Operator if self.peek().lexeme == "<" => {
-                    // note: look ahead to confirm <...>( ) call
+                    // Disambiguate generic calls from comparison `<`.
+                    // Only treat `<...>` as generics if we can find a matching `>`
+                    // that is immediately followed by a `(`.
                     let mut depth: i32 = 0;
                     let mut found_generic_call = false;
                     for la in 0..64usize {
@@ -1691,17 +1772,6 @@ impl Parser {
                             } else if t.token_type == TokenType::Operator && t.lexeme == ">" {
                                 depth -= 1;
                                 if depth == 0 {
-                                    if matches!(
-                                        self.tokens.get(self.idx + la + 1),
-                                        Some(n) if n.token_type == TokenType::LeftParen
-                                    ) {
-                                        found_generic_call = true;
-                                    }
-                                    break;
-                                }
-                            } else if t.token_type == TokenType::Operator && t.lexeme == ">>" {
-                                depth -= 2;
-                                if depth <= 0 {
                                     if matches!(
                                         self.tokens.get(self.idx + la + 1),
                                         Some(n) if n.token_type == TokenType::LeftParen
@@ -1720,8 +1790,21 @@ impl Parser {
                         break;
                     }
 
-                    self.advance();
-                    let generics = self.parse_generic_args()?;
+                    self.advance(); // <
+                    let mut generics = Vec::new();
+                    if self.peek().token_type != TokenType::Operator || self.peek().lexeme != ">" {
+                        loop {
+                            let typ = self.parse_type()?;
+                            generics.push(typ);
+                            if self.match_one(TokenType::Comma) {
+                                continue;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_nv(TokenType::Operator, ">")?; // >
+                                                               // Expect call parentheses after generics
                     self.expect(TokenType::LeftParen)?;
                     let args = self.parse_arguments()?;
                     self.expect(TokenType::RightParen)?;
@@ -1732,7 +1815,8 @@ impl Parser {
                     };
                 }
                 TokenType::LeftParen => {
-                    self.advance();
+                    // Function call without generics
+                    self.advance(); // (
                     let args = self.parse_arguments()?;
                     self.expect(TokenType::RightParen)?;
                     expr = Expr::Call {
@@ -1742,6 +1826,8 @@ impl Parser {
                     };
                 }
                 TokenType::Keyword if self.peek().lexeme == "with" => {
+                    // Record update: expr with { fields }
+                    // Disambiguate from constructs like `poll <expr> with interval=...`.
                     if !matches!(
                         self.tokens.get(self.idx + 1),
                         Some(t) if t.token_type == TokenType::LeftBrace
@@ -1749,13 +1835,25 @@ impl Parser {
                         break;
                     }
 
-                    // note: record update: base with { fields }
-                    self.advance();
+                    self.advance(); // consume 'with'
                     self.expect(TokenType::LeftBrace)?;
-                    let fields = self.parse_struct_fields()?;
+
+                    let mut fields = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+                        self.expect(TokenType::Colon)?;
+                        let field_expr = self.parse_expression(0)?;
+                        fields.push((field_name, field_expr));
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBrace)?;
 
                     expr = Expr::Literal(Literal::Struct {
-                        name: "update".to_string(),
+                        name: "update".to_string(), // Generic name for updates
                         base: Some(Box::new(expr)),
                         fields,
                     });
@@ -1766,46 +1864,21 @@ impl Parser {
         Ok(expr)
     }
 
-    // note: parse call argument list
+    // Add parse_arguments function
     fn parse_arguments(&mut self) -> ParseResult<Vec<Expr>> {
-        self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightParen,
-            |this| this.parse_expression(0),
-        )
-    }
-
-    // note: parse generic args until >
-    fn parse_generic_args(&mut self) -> ParseResult<Vec<TypeRef>> {
-        if self.peek().token_type == TokenType::Operator && self.peek().lexeme == ">" {
-            self.expect_gt()?;
-            return Ok(Vec::new());
+        let mut args = Vec::new();
+        while self.peek().token_type != TokenType::RightParen && !self.is_at_end() {
+            let arg = self.parse_expression(0)?;
+            args.push(arg);
+            if self.match_one(TokenType::Comma) {
+                continue;
+            } else {
+                break;
+            }
         }
-        let generics = self.parse_comma_separated(
-            |tok| {
-                tok.token_type == TokenType::Operator && (tok.lexeme == ">" || tok.lexeme == ">>")
-            },
-            |this| this.parse_type(),
-        )?;
-        self.expect_gt()?;
-        Ok(generics)
+        Ok(args)
     }
 
-    // note: parse {field: expr} list
-    fn parse_struct_fields(&mut self) -> ParseResult<Vec<(String, Expr)>> {
-        let fields = self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightBrace,
-            |this| {
-                let field_name = this.expect(TokenType::Identifier)?.lexeme;
-                this.expect(TokenType::Colon)?;
-                let field_expr = this.parse_expression(0)?;
-                Ok((field_name, field_expr))
-            },
-        )?;
-        self.expect(TokenType::RightBrace)?;
-        Ok(fields)
-    }
-
-    // note: parse type with generics and nullable
     fn parse_type(&mut self) -> ParseResult<TypeRef> {
         let mut name = String::new();
         let mut generics = Vec::new();
@@ -1824,6 +1897,7 @@ impl Parser {
             self.advance();
         }
 
+        // Parse base type name
         tok = self.peek().clone();
         match tok.token_type {
             TokenType::Identifier | TokenType::Keyword | TokenType::ModulePath => {
@@ -1839,10 +1913,21 @@ impl Parser {
             }
         }
 
+        // Parse generics if present
         if self.match_tnv(TokenType::Operator, "<") {
-            generics = self.parse_generic_args()?;
+            loop {
+                let generic_type = self.parse_type()?;
+                generics.push(generic_type);
+
+                if self.match_one(TokenType::Comma) {
+                    continue;
+                }
+                break;
+            }
+            self.expect_gt()?;
         }
 
+        // Parse nullable modifier
         if self.match_tnv(TokenType::Operator, "?") {
             nullable = true;
         }
@@ -1855,162 +1940,190 @@ impl Parser {
         })
     }
 
-    // note: parse list of patterns
-    fn parse_pattern_list(&mut self, end: TokenType) -> ParseResult<(Vec<Pattern>, Vec<String>)> {
-        let mut patterns = Vec::new();
-        let mut bindings = Vec::new();
-        while !self.is_at_end() && self.peek().token_type != end {
-            let sub_pat = self.parse_pattern()?;
-            bindings.extend(sub_pat.bindings.clone());
-            patterns.push(sub_pat);
-            if self.match_one(TokenType::Comma) {
-                if self.peek().token_type == end {
-                    break;
-                }
-                continue;
-            } else {
-                break;
-            }
-        }
-        self.expect(end)?;
-        Ok((patterns, bindings))
-    }
-
-    // note: parse struct pattern fields
-    fn parse_struct_pattern_fields(
-        &mut self,
-    ) -> ParseResult<(Vec<(String, Pattern)>, Vec<String>)> {
-        let mut fields = Vec::new();
-        let mut bindings = Vec::new();
-        while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
-            let field_name = self.expect(TokenType::Identifier)?.lexeme;
-            if self.match_one(TokenType::Colon) {
-                let field_pat = self.parse_pattern()?;
-                bindings.extend(field_pat.bindings.clone());
-                fields.push((field_name, field_pat));
-            } else {
-                let field_pat = Pattern {
-                    kind: PatternKind::Identifier(field_name.clone()),
-                    bindings: vec![field_name.clone()],
-                };
-                bindings.push(field_name.clone());
-                fields.push((field_name, field_pat));
-            }
-
-            if self.match_one(TokenType::Comma) {
-                if self.peek().token_type == TokenType::RightBrace {
-                    break;
-                }
-                continue;
-            } else {
-                break;
-            }
-        }
-        self.expect(TokenType::RightBrace)?;
-        Ok((fields, bindings))
-    }
-
-    // note: parse pattern and bindings
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
+        let mut bindings = Vec::new();
         let tok = self.peek().clone();
-        let (kind, bindings) = match tok.token_type {
+        let original_kind = match tok.token_type {
             TokenType::LeftParen => {
+                // Tuple pattern: (pat1, pat2, ...)
                 self.advance();
-                let (patterns, bindings) = self.parse_pattern_list(TokenType::RightParen)?;
-                (PatternKind::Tuple(patterns), bindings)
+                let mut patterns = Vec::new();
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
+                    let sub_pat = self.parse_pattern()?;
+                    bindings.extend(sub_pat.bindings.clone()); // Collect sub-bindings
+                    patterns.push(sub_pat);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightParen)?;
+                PatternKind::Tuple(patterns)
             }
             TokenType::LeftBracket => {
+                // Array pattern: [pat1, pat2, ...]
                 self.advance();
-                let (patterns, bindings) = self.parse_pattern_list(TokenType::RightBracket)?;
-                (PatternKind::Array(patterns), bindings)
+                let mut patterns = Vec::new();
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightBracket {
+                    let sub_pat = self.parse_pattern()?;
+                    bindings.extend(sub_pat.bindings.clone()); // Collect sub-bindings
+                    patterns.push(sub_pat);
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightBracket)?;
+                PatternKind::Array(patterns)
             }
             TokenType::LeftBrace => {
+                // Struct pattern: {field1: pat1, field2: pat2} หรือ {field1, field2} (shorthand)
                 self.advance();
-                let (fields, bindings) = self.parse_struct_pattern_fields()?;
-                (PatternKind::Struct { name: None, fields }, bindings)
+                let mut fields = Vec::new();
+
+                while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                    let field_name = self.expect(TokenType::Identifier)?.lexeme;
+
+                    // ตรวจสอบว่าเป็นรูปแบบเต็ม {field: pattern} หรือ shorthand {field}
+                    if self.match_one(TokenType::Colon) {
+                        // รูปแบบเต็ม: {field: pattern}
+                        let field_pat = self.parse_pattern()?;
+                        bindings.extend(field_pat.bindings.clone()); // Collect sub-bindings
+                        fields.push((field_name, field_pat));
+                    } else {
+                        // รูปแบบ shorthand: {field} - สร้าง pattern เป็น Identifier(field)
+                        let field_pat = Pattern {
+                            kind: PatternKind::Identifier(field_name.clone()),
+                            bindings: vec![field_name.clone()],
+                        };
+                        bindings.push(field_name.clone()); // เพิ่ม binding
+                        fields.push((field_name, field_pat));
+                    }
+
+                    if self.match_one(TokenType::Comma) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightBrace)?;
+                PatternKind::Struct { name: None, fields }
             }
             TokenType::Identifier => {
                 let ident = self.advance().lexeme.clone();
                 let is_upper = ident.chars().next().map_or(false, |c| c.is_uppercase());
                 if ident == "_" {
-                    (PatternKind::Wildcard, Vec::new())
+                    PatternKind::Wildcard
                 } else if ident == "Nil" {
-                    (PatternKind::Nil, Vec::new())
+                    PatternKind::Nil
                 } else if ident == "None" {
-                    (PatternKind::NoneVariant, Vec::new())
+                    PatternKind::NoneVariant
                 } else if ident == "Some" && self.peek().token_type == TokenType::LeftParen {
-                    self.advance();
+                    self.advance(); // Consume '('
                     let inner_pat = self.parse_pattern()?;
-                    let bindings = inner_pat.bindings.clone();
+                    bindings.extend(inner_pat.bindings.clone());
                     self.expect(TokenType::RightParen)?;
-                    (PatternKind::SomeVariant(Box::new(inner_pat)), bindings)
+                    PatternKind::SomeVariant(Box::new(inner_pat))
                 } else if ident == "Ok" && self.peek().token_type == TokenType::LeftParen {
-                    self.advance();
+                    self.advance(); // Consume '('
                     let inner_pat = self.parse_pattern()?;
-                    let bindings = inner_pat.bindings.clone();
+                    bindings.extend(inner_pat.bindings.clone());
                     self.expect(TokenType::RightParen)?;
-                    (PatternKind::OkVariant(Box::new(inner_pat)), bindings)
+                    PatternKind::OkVariant(Box::new(inner_pat))
                 } else if ident == "Err" && self.peek().token_type == TokenType::LeftParen {
-                    self.advance();
+                    self.advance(); // Consume '('
                     let inner_pat = self.parse_pattern()?;
-                    let bindings = inner_pat.bindings.clone();
+                    bindings.extend(inner_pat.bindings.clone());
                     self.expect(TokenType::RightParen)?;
-                    (PatternKind::ErrVariant(Box::new(inner_pat)), bindings)
+                    PatternKind::ErrVariant(Box::new(inner_pat))
                 } else if self.peek().token_type == TokenType::LeftBrace {
-                    self.advance();
-                    let (fields, bindings) = self.parse_struct_pattern_fields()?;
+                    // Struct pattern or enum struct variant
+                    self.advance(); // Consume '{'
+                    let mut fields = Vec::new();
+
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
+                        let field_name = self.expect(TokenType::Identifier)?.lexeme;
+
+                        // ตรวจสอบว่าเป็นรูปแบบเต็มหรือ shorthand
+                        if self.match_one(TokenType::Colon) {
+                            // รูปแบบเต็ม: field: pattern
+                            let field_pat = self.parse_pattern()?;
+                            bindings.extend(field_pat.bindings.clone()); // Collect
+                            fields.push((field_name, field_pat));
+                        } else {
+                            // รูปแบบ shorthand: field - สร้าง pattern เป็น Identifier(field)
+                            let field_pat = Pattern {
+                                kind: PatternKind::Identifier(field_name.clone()),
+                                bindings: vec![field_name.clone()],
+                            };
+                            bindings.push(field_name.clone()); // เพิ่ม binding
+                            fields.push((field_name, field_pat));
+                        }
+
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBrace)?;
                     if is_upper {
-                        let inner = Pattern {
+                        let inner = Some(Box::new(Pattern {
                             kind: PatternKind::Struct { name: None, fields },
                             bindings: bindings.clone(),
-                        };
-                        (
-                            PatternKind::EnumVariant {
-                                variant_name: ident,
-                                inner_pattern: Some(Box::new(inner)),
-                            },
-                            bindings,
-                        )
-                    } else {
-                        (
-                            PatternKind::Struct {
-                                name: Some(ident),
-                                fields,
-                            },
-                            bindings,
-                        )
-                    }
-                } else if self.peek().token_type == TokenType::LeftParen {
-                    self.advance();
-                    let (patterns, bindings) = self.parse_pattern_list(TokenType::RightParen)?;
-                    if patterns.is_empty() {
-                        return Err(self.error_here("Empty tuple in variant".into()));
-                    }
-                    let inner = if patterns.len() == 1 {
-                        Some(Box::new(patterns.into_iter().next().unwrap()))
-                    } else {
-                        Some(Box::new(Pattern {
-                            kind: PatternKind::Tuple(patterns),
-                            bindings: bindings.clone(),
-                        }))
-                    };
-                    (
+                        }));
                         PatternKind::EnumVariant {
                             variant_name: ident,
                             inner_pattern: inner,
-                        },
-                        bindings,
-                    )
+                        }
+                    } else {
+                        PatternKind::Struct {
+                            name: Some(ident),
+                            fields,
+                        }
+                    }
+                } else if self.peek().token_type == TokenType::LeftParen {
+                    // Variant positional: Ident(pat1, pat2)
+                    self.advance(); // Consume '('
+                    let mut patterns = Vec::new();
+                    let mut sub_bindings = Vec::new();
+                    while !self.is_at_end() && self.peek().token_type != TokenType::RightParen {
+                        let sub_pat = self.parse_pattern()?;
+                        sub_bindings.extend(sub_pat.bindings.clone());
+                        patterns.push(sub_pat);
+                        if self.match_one(TokenType::Comma) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightParen)?;
+                    let inner = if patterns.is_empty() {
+                        return Err(ParseError::Generic("Empty tuple in variant".into()));
+                    } else if patterns.len() == 1 {
+                        Some(Box::new(patterns.remove(0)))
+                    } else {
+                        Some(Box::new(Pattern {
+                            kind: PatternKind::Tuple(patterns),
+                            bindings: sub_bindings,
+                        }))
+                    };
+                    bindings = inner.as_ref().map_or(Vec::new(), |p| p.bindings.clone());
+                    PatternKind::EnumVariant {
+                        variant_name: ident,
+                        inner_pattern: inner,
+                    }
                 } else if is_upper {
-                    (
-                        PatternKind::EnumVariant {
-                            variant_name: ident,
-                            inner_pattern: None,
-                        },
-                        Vec::new(),
-                    )
+                    // Unit enum variant
+                    PatternKind::EnumVariant {
+                        variant_name: ident,
+                        inner_pattern: None,
+                    }
                 } else {
-                    (PatternKind::Identifier(ident.clone()), vec![ident])
+                    bindings.push(ident.clone());
+                    PatternKind::Identifier(ident)
                 }
             }
             TokenType::IntLiteral
@@ -2019,15 +2132,21 @@ impl Parser {
             | TokenType::BoolLiteral => {
                 let literal = match self.parse_primary()? {
                     Expr::Literal(l) => l,
-                    _ => return Err(self.error_here("Expected literal".into())),
+                    _ => return Err(ParseError::Generic("Expected literal".into())),
                 };
-                (PatternKind::Literal(literal), Vec::new())
+                PatternKind::Literal(literal)
             }
-            _ => return Err(self.error_here("Expected pattern".into())),
+            _ => return Err(ParseError::Generic("Expected pattern".into())),
         };
 
-        let mut total_bindings = bindings.clone();
-        let mut or_patterns = vec![Pattern { kind, bindings }];
+        let original_bindings = bindings;
+
+        let mut total_bindings = original_bindings.clone();
+
+        let mut or_patterns = vec![Pattern {
+            kind: original_kind,
+            bindings: original_bindings,
+        }];
 
         while self.match_tnv(TokenType::Operator, "|") {
             let sub_pat = self.parse_pattern()?;
@@ -2045,10 +2164,11 @@ impl Parser {
         }
     }
 
-    // note: parse \ params :> expr
     fn parse_lambda(&mut self) -> ParseResult<Expr> {
+        // Parse parameters: \param :> expr or \param1, param2 :> expr
         let mut params = Vec::new();
 
+        // Parse first parameter
         let param_name = self.expect(TokenType::Identifier)?.lexeme;
         params.push(Param {
             pattern: Pattern {
@@ -2059,6 +2179,7 @@ impl Parser {
             default: None,
         });
 
+        // Parse additional parameters if comma-separated
         while self.match_one(TokenType::Comma) {
             let param_name = self.expect(TokenType::Identifier)?.lexeme;
             params.push(Param {
@@ -2071,8 +2192,10 @@ impl Parser {
             });
         }
 
+        // Expect the lambda arrow :>
         self.expect(TokenType::ShortArrow)?;
 
+        // Parse the lambda body
         let body = self.parse_expression(0)?;
 
         Ok(Expr::Lambda {
@@ -2082,25 +2205,24 @@ impl Parser {
     }
 }
 
-// note: operator precedence table
+// operator precedence table
+// Returns (precedence, right_associative)
 pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
     match tok.lexeme.as_str() {
         "||" | "or" => Some((1, false)),
         "&&" | "and" => Some((2, false)),
         "==" | "!=" | "<" | "<=" | ">" | ">=" => Some((3, false)),
-        "|>" => Some((11, false)),
-        "|" => Some((4, false)),
+        "|>" => Some((11, false)), // pipeline operator (high precedence, left-assoc)
+        "|" => Some((4, false)), // bitwise or
         "^" => Some((5, false)),
         "&" => Some((6, false)),
         "<<" | ">>" => Some((7, false)),
         "+" | "-" => Some((8, false)),
         "*" | "/" | "%" => Some((9, false)),
-        "^." => Some((10, false)),
+        "^." /* some custom op */ => Some((10, false)),
         "::" => Some((12, false)),
         "?" => Some((13, false)),
-        "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" => {
-            Some((0, true))
-        }
+        "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" => Some((0, true)), // assignments (lowest precedence, right-assoc)
         _ => None,
     }
 }

@@ -2,38 +2,40 @@ mod parser;
 mod ptypes;
 mod tokenizer;
 
-fn main() {
-    let code = "
-@entry
-fn main() {
-    let double = \\x :> x * 2;
-    let add = \\x, y :> x + y;
-    
-    let result = [1, 2, 3, 4] |> double |> \\xs :> xs.length;
-    
-    let pipeline_result = 5 |> \\n :> n * 10 |> \\n :> n + 5;
+use std::fs;
+use std::env;
 
-    let complex = \\x, y, z :> (x + y) * z |> \\n :> n / 2;
-}
-";
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = env::args().nth(1).unwrap_or_else(|| "./main.nx".to_string());
+    let code = fs::read_to_string(&path)?;
 
-    let mut tokenizer = tokenizer::Tokenizer::new(code);
+    let mut tokenizer = tokenizer::Tokenizer::new(&code);
     let tokens = tokenizer.tokenize();
 
-    println!("Tokenization Results:");
-    println!("===================");
+    println!("Input file: {}", path);
+    println!("Tokens ({})", tokens.len());
+    println!("----------------------------------------");
 
     for token in &tokens {
-        println!("{}", token)
+        println!("  {}", token)
     }
 
     let mut parser = parser::Parser::new(tokens);
-    let items = parser.parse_program().unwrap().items;
+    let program = match parser.parse_program() {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!("\n{}", err);
+            std::process::exit(1);
+        }
+    };
+    let items = program.items;
 
-    println!("\n\nParse Results:");
-    println!("===================");
+    println!("\nAST (items: {})", items.len());
+    println!("----------------------------------------");
 
     for item in &items {
         println!("{}", item);
     }
+
+    Ok(())
 }

@@ -1,0 +1,20 @@
+@api
+public fn process<T: TraitA + TraitB, U: X = Int, V: V subtype of Base, L: lifetime a>(
+    value: T,
+    data: U,
+    item: V,
+    life: L,
+    raw: ~Int,
+    managed: @Handle,
+    weak: &Node,
+    shared: +Cache,
+    maybe: String?
+) -> Result<T> !io Read(Int, String) !net Write {
+    return value
+}
+
+async fn+ combine<A: TraitA, B: B subtype of Base>(a: A, b: B) -> A :> a
+
+fn bounds<W: W subtype of Base>(w: W) !io Read where W: TraitX + TraitY, W: Z = Int {
+    return w
+}

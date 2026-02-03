@@ -1,0 +1,233 @@
+
+// 1. Minimal class
+class Empty {
+}
+
+// 2. Fields with defaults, visibility, attributes
+class FieldDemo {
+    @lazy
+    private x: Int
+    protected y: String = "default"
+    internal z: Float = 3.14
+    package w: Bool = true
+    public v: Char = 'c'
+    @reactive
+    mutable u: Vector<Int> = v[]
+}
+
+// 3. Constructors: init and init.Name
+class CtorDemo {
+    name: String
+    age: Int
+
+    init(name: String, age: Int) {
+        let name_: String = name
+        let age_: Int = age
+    }
+
+    init.withName(name: String) {
+        let name__: String = name
+        let age__: Int = 0
+    }
+
+    init.withAge(age: Int) {
+        let name___: String = "Unnamed"
+        let age___: Int = age
+    }
+}
+
+// 4. Methods: fn, async fn, fn+ (multidispatch)
+class MethodDemo {
+    value: Int
+
+    fn show() -> String {
+        return "show"
+    }
+
+    async fn asyncShow() -> String {
+        return "asyncShow"
+    }
+
+    fn+ add(other: MethodDemo) -> MethodDemo {
+        return MethodDemo(value + other.value)
+    }
+
+    fn+ sub(other: MethodDemo) -> MethodDemo {
+        return MethodDemo(value - other.value)
+    }
+}
+
+// 5. Class with forward-compatible clauses (skipped in v1)
+class ForwardCompat extends Base with Mixin1, Mixin2 implements Interface1, Interface2 {
+    field: Int
+
+    init(field: Int) {
+        let field_: Int = field
+    }
+
+    fn method() -> Int {
+        return field
+    }
+}
+
+// 6. Class with parameterized attributes
+class AttrDemo {
+    @attr(1, "two", true)
+    field: Int
+
+    @paramAttr(x = 10, y = 20)
+    fn method() -> Int {
+        return field
+    }
+}
+
+// 7. Mixed visibility and attributes on constructors and methods
+class VisAttrDemo {
+    private secret: String
+
+    public init(secret: String) {
+        let secret_: String = secret
+    }
+
+    protected init.withSecret(secret: String) {
+        let secret__: String = secret
+    }
+
+    @test
+    public fn testMethod() -> String {
+        return secret
+    }
+
+    @deprecated
+    private fn oldMethod() -> String {
+        return "old"
+    }
+
+    async fn+ asyncMulti(other: VisAttrDemo) -> VisAttrDemo {
+        return VisAttrDemo(secret + other.secret)
+    }
+}
+
+// 8. Class with no explicit constructor (should still parse)
+class NoCtor {
+    a: Int
+    b: String = "b"
+}
+
+// 9. Class with only methods (no fields)
+class OnlyMethods {
+    fn hello() -> String {
+        return "hello"
+    }
+
+    async fn asyncHello() -> String {
+        return "asyncHello"
+    }
+
+    fn+ combine(other: OnlyMethods) -> OnlyMethods {
+        return OnlyMethods()
+    }
+}
+
+// 10. Edge case: class with empty body and attributes
+@meta
+@version("1.0")
+class EmptyWithAttrs {
+}
+
+// 11. Class with all visibility levels on fields
+class AllVisFields {
+    public pubField: Int
+    private privField: String
+    protected protField: Float
+    internal intField: Bool
+    package pkgField: Char
+}
+
+// 12. Class with complex types and generics in fields/methods
+class GenericDemo {
+    items: Vector<Pair<String, Int>>
+    map: Map<String, Vector<Int>>
+
+    fn addItem(item: Pair<String, Int>) {
+        items.push(item)
+    }
+
+    fn+ merge(other: GenericDemo) -> GenericDemo {
+        return GenericDemo(items + other.items, map + other.map)
+    }
+}
+
+// 13. Class with nested struct-like field defaults
+class NestedDefaults {
+    point: Point = Point(0, 0)
+    config: Config = Config{enabled: true, retries: 3}
+    flags: Vector<Bool> = v[true, false, true]
+}
+
+// 14. Class with method returning complex types
+class ComplexReturn {
+    data: Vector<Int>
+
+    fn getData() -> Vector<Int> {
+        return data
+    }
+
+    async fn fetchData() -> Vector<Int> {
+        return v[]
+    }
+
+    fn+ combineData(other: ComplexReturn) -> Vector<Int> {
+        return data + other.data
+    }
+}
+
+// 15. Class with constructor default parameters
+class DefaultParams {
+    name: String
+    age: Int
+    active: Bool
+
+    init(name: String = "Unnamed", age: Int = 0, active: Bool = true) {
+        let name_: String = name
+        let age_: Int = age
+        let active_: Bool = active
+    }
+}
+
+// === EXISTING TESTS (kept) ===
+
+@test
+fn test_find_first_even() {
+    let xs: Vector<Int> = v[1, 3, 4, 6]
+    let~ result: Int = -1
+
+    for x in xs {
+        if x % 2 == 0 {
+            result = x
+            break
+        }
+    }
+
+    assert Eq(result, 4)
+}
+
+@test
+fn test_sum_until_negative() {
+    let xs: Vector<Int> = v[1, 2, 0, 3, -1, 10]
+    let~ acc: Int = 0
+
+    for x in xs {
+        if x < 0 {
+            break
+        }
+
+        if x == 0 {
+            continue
+        }
+
+        acc = acc + x
+    }
+
+    assert Eq(acc, 6)
+}

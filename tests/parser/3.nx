@@ -1,0 +1,76 @@
+fn statements_all() {
+    let x: Int = 1
+    let~ y: Int = 2
+
+    try {
+        let z: Int = 3
+    } catch (e) {
+        let w: Int = 4
+    }
+
+    while x < 10 {
+        x = x + 1
+        if x == 5 {
+            continue
+        }
+        if x == 8 {
+            break x
+        }
+    }
+
+    for i in v[1, 2, 3] :> i
+
+    for j in Config {
+        let k: Int = j
+    }
+
+    loop {
+        break 1
+    }
+
+    match {
+        x > 0 :> { let a: Int = 1 }
+        x == 0 :> { let b: Int = 2 }
+    }
+
+    match x {
+        0 :> 0
+        1 if x > 0 :> x
+        _ :> 2
+    }
+
+    watch a, Point {
+        when a > 0 :> { let c: Int = 1 }
+    }
+
+    converge with history state {
+        let s: Int = 1
+    } until state > 0
+
+    within 5s if x > 0 :> { let t: Int = 1 }
+
+    atomically {
+        let u: Int = 1
+    }
+
+    trap x < 0 :> { let v: Int = 1 }
+
+    guard x > 0 :> { let g: Int = 1 } else :> { let h: Int = 2 }
+
+    poll x with interval = 5 :> { let p: Int = 1 }
+
+    delete x
+
+    joins(let a: Int = 1; let b: Int = 2) {
+        let c: Int = a + b
+    }
+
+    in context Target {
+        x :> { let m: Int = 1 }
+    }
+
+    on sequence idx = seq :> { let n: Int = 1 }
+
+    panic unless x > 0
+    return x
+}

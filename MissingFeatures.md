@@ -16,7 +16,7 @@
 
 #### 4. Struct (Product Type), Enum (Sum Type), Array, Tuple, Struct Literal, Vector Literal
 - **ครบถ้วน**: Struct `struct Point { x: Float, y: Float, }` (parse_struct รองรับ fields with type, comma-terminated), Enum simplified `enum Shape { Circle, Rect }`, Array `[a,b,c]`, Tuple `(a,b,c)`, Struct literal `Point { x:1, y:2 }` (in parse_primary, if ident + { fields }), Vector `v[a,b,c]` (in parse_primary, if "v" + [elements]).
-- **ขาดบางส่วน**:
+- **ไม่ขาด**:
   - Enum variants: md มี `Circle { radius: Float }` (named fields), `Rect {..}`, `Polygon(Vector<Point>)` (positional). แต่ parse_enum เป็น simplified variants เพียง String (no fields or positional/named distinction). ขาด parse variants with {fields} or (types).
   - ไม่มี parse สำหรับ enum with generics หรือ complex inner types (แต่ TypeRef รองรับ generics).
 

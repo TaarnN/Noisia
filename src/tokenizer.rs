@@ -85,13 +85,22 @@ impl Token {
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.token_type {
-            _ => write!(
-                f,
-                "{:?}('{}') at {}:{}",
-                self.token_type, self.lexeme, self.line, self.column
-            ),
-        }
+        let type_label = format!("{:?}", self.token_type);
+        let lexeme = if self.lexeme.is_empty() {
+            if matches!(self.token_type, TokenType::EOF) {
+                "<eof>".to_string()
+            } else {
+                "<empty>".to_string()
+            }
+        } else {
+            format!("`{}`", self.lexeme.escape_default())
+        };
+
+        write!(
+            f,
+            "{:>4}:{:<3} {:<22} {}",
+            self.line, self.column, type_label, lexeme
+        )
     }
 }
 
@@ -147,6 +156,7 @@ impl Tokenizer {
             "trait",
             "impl",
             "class",
+            "init",
             "extends",
             "implements",
             "with",
@@ -163,6 +173,7 @@ impl Tokenizer {
             "protected",
             "internal",
             "package",
+            "mutable",
             "friend",
             "static",
             "virtual",
@@ -281,6 +292,7 @@ impl Tokenizer {
             (":>", TokenType::ShortArrow),
             ("->", TokenType::FatArrow),
             ("->?", TokenType::Operator),
+            ("<-", TokenType::Operator),
             ("<->", TokenType::Operator),
             ("<@", TokenType::Operator),
             ("@>", TokenType::Operator),

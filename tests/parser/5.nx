@@ -1,0 +1,39 @@
+fn patterns_all(x: Int, opt: Option<Int>, res: Result<Int, String>, pair: Pair<Int, Int>, arr: Vector<Int>) -> Int {
+    match x {
+        0 :> 0
+        1 :> 1
+        _ :> 2
+    }
+
+    match opt {
+        Some(v) :> v
+        None :> 0
+        Nil :> 0
+    }
+
+    match res {
+        Ok(v) :> v
+        Err(e) :> 0
+    }
+
+    match pair {
+        (a, b) :> a
+    }
+
+    match arr {
+        [a, b] :> a
+    }
+
+    match x {
+        { x, y: (a, b) } :> a
+    }
+
+    match x {
+        Variant { x } :> x
+        Variant(a, b) :> a
+        Ready :> 0
+    }
+
+    // or-pattern example (token type mismatch today): A | B :> 0
+    return 0
+}

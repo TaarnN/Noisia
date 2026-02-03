@@ -1,0 +1,71 @@
+@file
+module App::Core
+
+@use
+import Net::Http::{Client, Request}
+import Util::Math
+
+@doc("basic")
+struct Point {
+    x: Int,
+    y: Int
+}
+
+@tag("result")
+enum Result<T> {
+    Ok(T),
+    Err(String),
+    Unit,
+    Named { code: Int }
+}
+
+@trait
+trait Printable {
+    fn fmt(self) -> String
+}
+
+@impl
+impl Printable for Point {
+    fn fmt(self) -> String {
+        return "Point"
+    }
+}
+
+@entity
+class Demo extends Base, Base2 with Mixin1, Mixin2 implements IFace1, IFace2 {
+    public id: Int
+    private name: String
+    protected rate: Float
+    internal flag: Bool
+    package mark: String?
+    public socket: Net::Socket
+
+    @field
+    public mutable counter: Int = 0
+
+    @init
+    public init(id: Int, name: String) {
+        let id_: Int = id
+        let name_: String = name
+    }
+
+    @init_named
+    private init.withName(name: String) {
+        let name2: String = name
+    }
+
+    @work
+    public fn work(x: Int) -> Int {
+        return x + counter
+    }
+
+    @async_work
+    protected async fn fetch() -> String {
+        return "ok"
+    }
+
+    @multi
+    internal fn+ merge(other: Demo) -> Demo {
+        return other
+    }
+}

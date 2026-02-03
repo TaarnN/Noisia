@@ -1,0 +1,47 @@
+fn expressions_all() {
+    let x: Int = 1
+    let y: Int = 2
+
+    let neg: Int = -x
+    let pos: Int = +x
+    let bang: Bool = !false
+    let nnot: Bool = not false
+
+    let sum: Int = x + y
+    let mix: Int = x * y + (x - y) / 2
+
+    x += 1
+    x = x + 1
+
+    let piped: Int = x |> inc
+    let tried: Int = maybe?
+
+    let call1: Int = make<Outer<Inner>>(x)
+    let call2: Int = obj.method<Inner>(x)
+
+    let field: Int = obj.value
+    let idx: Int = arr[0]
+
+    let st: Point = Point { x: 1, y: 2 }
+    let st2: Net::Point = Net::Point { x: 1, y: 2 }
+    let updated: Point = st with { x: 3 }
+
+    let vec: Vector<Int> = v[1, 2, 3]
+    let arr1: Vector<Int> = [1, 2, 3]
+    let arr2: Vector<Int> = []
+
+    let tup = (1, 2, 3)
+    let grp = (x)
+
+    let comp = [x * 2 | x <- xs, x > 0]
+    let lam = \a, b :> a + b
+
+    let unit = 10ms
+
+    let s1 = "hello"
+    let s2 = $"hi"
+    let s3 = """multi"""
+
+    let aw = await work()
+    let sp = spawn job()
+}
