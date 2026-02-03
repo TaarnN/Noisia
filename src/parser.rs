@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use crate::ptypes::*;
+use crate::style::Style;
 use crate::tokenizer::{Token, TokenType};
 use std::fmt;
 
@@ -20,6 +21,104 @@ impl fmt::Display for Item {
             Item::Class(inner) => write!(f, "{:#?}", inner),
         }
     }
+}
+
+impl Item {
+    pub fn pretty(&self, style: &Style) -> String {
+        let raw = match self {
+            Item::ModuleDecl(inner) => format!("{:#?}", inner),
+            Item::Import(inner) => format!("{:#?}", inner),
+            Item::Function(inner) => format!("{:#?}", inner),
+            Item::Struct(inner) => format!("{:#?}", inner),
+            Item::Enum(inner) => format!("{:#?}", inner),
+            Item::Trait(inner) => format!("{:#?}", inner),
+            Item::Impl(inner) => format!("{:#?}", inner),
+            Item::Class(inner) => format!("{:#?}", inner),
+        };
+
+        colorize_ast_debug(style, &raw)
+    }
+}
+
+fn colorize_ast_debug(style: &Style, input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + input.len() / 4);
+    for (idx, line) in input.lines().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+
+        let (indent, trimmed) = split_indent(line);
+        if trimmed.is_empty() {
+            out.push_str(line);
+            continue;
+        }
+
+        if starts_with_closer(trimmed) {
+            out.push_str(indent);
+            out.push_str(&style.dim(trimmed));
+            continue;
+        }
+
+        if let Some(colon_idx) = trimmed.find(':') {
+            let field = &trimmed[..colon_idx];
+            let rest = &trimmed[colon_idx + 1..];
+            out.push_str(indent);
+            out.push_str(&style.paint(field, &["1", "36"]));
+            out.push_str(&style.dim(":"));
+            out.push_str(rest);
+            continue;
+        }
+
+        if let Some(brace_idx) = trimmed.find('{') {
+            let (before_raw, after) = trimmed.split_at(brace_idx);
+            let before_trimmed = before_raw.trim_end();
+            if before_trimmed.is_empty() {
+                out.push_str(indent);
+                out.push_str(&style.dim(trimmed));
+            } else {
+                let gap = &before_raw[before_trimmed.len()..];
+                let after_full = format!("{}{}", gap, after);
+                out.push_str(indent);
+                out.push_str(&style.paint(before_trimmed, &["1", "35"]));
+                out.push_str(&style.dim(&after_full));
+            }
+            continue;
+        }
+
+        if let Some(paren_idx) = trimmed.find('(') {
+            let (before_raw, after) = trimmed.split_at(paren_idx);
+            if !before_raw.trim().is_empty() {
+                out.push_str(indent);
+                out.push_str(&style.paint(before_raw.trim_end(), &["1", "35"]));
+                out.push_str(&style.dim(after));
+                continue;
+            }
+        }
+
+        out.push_str(indent);
+        out.push_str(trimmed);
+    }
+
+    out
+}
+
+fn split_indent(line: &str) -> (&str, &str) {
+    let mut idx = 0;
+    for (i, ch) in line.char_indices() {
+        if !ch.is_whitespace() {
+            idx = i;
+            break;
+        }
+        idx = i + ch.len_utf8();
+    }
+    line.split_at(idx)
+}
+
+fn starts_with_closer(trimmed: &str) -> bool {
+    matches!(
+        trimmed.chars().next(),
+        Some('}') | Some(']') | Some(')')
+    )
 }
 
 pub struct Parser {
@@ -479,7 +578,7 @@ impl Parser {
         self.expect(TokenType::RightParen)?;
 
         if self.peek().token_type != TokenType::LeftBrace {
-            return Err(self.error_here("Constructors must have a block body".into()));
+            return Err(self.error_here("Constructors must have a block body"));
         }
         let body = self.parse_block()?;
 
@@ -1170,7 +1269,7 @@ impl Parser {
                     self.expect(TokenType::RightBrace)?;
                     Ok(Stmt::MatchCond { arms })
                 } else {
-                    let expr = self.parse_expression(0)?;
+                    let expr = self.parse_expr_with_struct_literal_guard(false)?;
                     self.expect(TokenType::LeftBrace)?;
 
                     let mut arms = Vec::new();
@@ -1594,9 +1693,14 @@ impl Parser {
                     return Ok(Expr::Literal(Literal::Array(Vec::new())));
                 }
 
-                let first_expr = self.parse_expression(0)?;
+                if let Some(pipe_idx) = self.find_list_comp_pipe(self.idx) {
+                    if pipe_idx == self.idx {
+                        return Err(self.error_here("expected expression before list comprehension"));
+                    }
 
-                if self.match_one(TokenType::Pipe) {
+                    let first_expr = self.parse_expression_slice(pipe_idx)?;
+                    self.expect(TokenType::Pipe)?;
+
                     // note: list comp: [expr | pat <- iter, guard]
                     let pattern = self.parse_pattern()?;
                     self.expect_nv(TokenType::Operator, "<-")?;
@@ -1616,6 +1720,7 @@ impl Parser {
                         guard,
                     })
                 } else {
+                    let first_expr = self.parse_expression(0)?;
                     let mut elements = vec![first_expr];
                     while self.match_one(TokenType::Comma) {
                         if self.peek().token_type == TokenType::RightBracket {
@@ -1634,6 +1739,127 @@ impl Parser {
                 idx: self.idx,
             }),
         }
+    }
+
+    // note: look for list comp pipe at top-level in current bracket
+    fn find_list_comp_pipe(&self, start_idx: usize) -> Option<usize> {
+        let mut depth_paren: i32 = 0;
+        let mut depth_brace: i32 = 0;
+        let mut depth_bracket: i32 = 0;
+        let mut i = start_idx;
+
+        while i < self.tokens.len() {
+            let tok = &self.tokens[i];
+            let at_top = depth_paren == 0 && depth_brace == 0 && depth_bracket == 0;
+
+            if at_top {
+                match tok.token_type {
+                    TokenType::RightBracket | TokenType::Comma => break,
+                    TokenType::Pipe => {
+                        if self.has_list_comp_arrow(i + 1) {
+                            return Some(i);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            match tok.token_type {
+                TokenType::LeftParen => depth_paren += 1,
+                TokenType::RightParen => {
+                    if depth_paren > 0 {
+                        depth_paren -= 1;
+                    }
+                }
+                TokenType::LeftBrace => depth_brace += 1,
+                TokenType::RightBrace => {
+                    if depth_brace > 0 {
+                        depth_brace -= 1;
+                    }
+                }
+                TokenType::LeftBracket => depth_bracket += 1,
+                TokenType::RightBracket => {
+                    if depth_bracket > 0 {
+                        depth_bracket -= 1;
+                    }
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+
+        None
+    }
+
+    // note: check for "<-" at top-level after the pipe
+    fn has_list_comp_arrow(&self, start_idx: usize) -> bool {
+        let mut depth_paren: i32 = 0;
+        let mut depth_brace: i32 = 0;
+        let mut depth_bracket: i32 = 0;
+        let mut saw_token = false;
+        let mut i = start_idx;
+
+        while i < self.tokens.len() {
+            let tok = &self.tokens[i];
+            let at_top = depth_paren == 0 && depth_brace == 0 && depth_bracket == 0;
+
+            if at_top {
+                match tok.token_type {
+                    TokenType::RightBracket | TokenType::Comma => return false,
+                    TokenType::Operator if tok.lexeme == "<-" => return saw_token,
+                    TokenType::EOF => return false,
+                    _ => {}
+                }
+            }
+
+            saw_token = true;
+
+            match tok.token_type {
+                TokenType::LeftParen => depth_paren += 1,
+                TokenType::RightParen => {
+                    if depth_paren > 0 {
+                        depth_paren -= 1;
+                    }
+                }
+                TokenType::LeftBrace => depth_brace += 1,
+                TokenType::RightBrace => {
+                    if depth_brace > 0 {
+                        depth_brace -= 1;
+                    }
+                }
+                TokenType::LeftBracket => depth_bracket += 1,
+                TokenType::RightBracket => {
+                    if depth_bracket > 0 {
+                        depth_bracket -= 1;
+                    }
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+
+        false
+    }
+
+    // note: parse expression from current idx up to end_idx (exclusive)
+    fn parse_expression_slice(&mut self, end_idx: usize) -> ParseResult<Expr> {
+        let sub_tokens = self.tokens[self.idx..end_idx].to_vec();
+        let mut sub_parser = Parser::new(sub_tokens);
+        let expr = sub_parser.parse_expression(0)?;
+
+        if !sub_parser.is_at_end() {
+            let tok = sub_parser.peek().clone();
+            return Err(ParseError::UnexpectedToken {
+                expected: "end of list comprehension expression".into(),
+                found: tok,
+                idx: self.idx + sub_parser.idx,
+            });
+        }
+
+        self.idx = end_idx;
+        Ok(expr)
     }
 
     // note: parse calls, fields, index, update
@@ -1662,7 +1888,7 @@ impl Parser {
                     } else {
                         if !generics.is_empty() {
                             return Err(self.error_here(
-                                "Unexpected generics without method call".into(),
+                                "Unexpected generics without method call",
                             ));
                         }
                         expr = Expr::FieldAccess {
@@ -1984,7 +2210,7 @@ impl Parser {
                     self.advance();
                     let (patterns, bindings) = self.parse_pattern_list(TokenType::RightParen)?;
                     if patterns.is_empty() {
-                        return Err(self.error_here("Empty tuple in variant".into()));
+                        return Err(self.error_here("Empty tuple in variant"));
                     }
                     let inner = if patterns.len() == 1 {
                         Some(Box::new(patterns.into_iter().next().unwrap()))
@@ -2019,11 +2245,11 @@ impl Parser {
             | TokenType::BoolLiteral => {
                 let literal = match self.parse_primary()? {
                     Expr::Literal(l) => l,
-                    _ => return Err(self.error_here("Expected literal".into())),
+                    _ => return Err(self.error_here("Expected literal")),
                 };
                 (PatternKind::Literal(literal), Vec::new())
             }
-            _ => return Err(self.error_here("Expected pattern".into())),
+            _ => return Err(self.error_here("Expected pattern")),
         };
 
         let mut total_bindings = bindings.clone();

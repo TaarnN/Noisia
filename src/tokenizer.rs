@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::style::Style;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Keywords
@@ -85,8 +87,17 @@ impl Token {
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pretty(&Style::plain()))
+    }
+}
+
+impl Token {
+    pub fn pretty(&self, style: &Style) -> String {
+        let pos = format!("{:>4}:{:<3}", self.line, self.column);
         let type_label = format!("{:?}", self.token_type);
-        let lexeme = if self.lexeme.is_empty() {
+        let type_padded = format!("{:<22}", type_label);
+
+        let lexeme_raw = if self.lexeme.is_empty() {
             if matches!(self.token_type, TokenType::EOF) {
                 "<eof>".to_string()
             } else {
@@ -96,12 +107,65 @@ impl fmt::Display for Token {
             format!("`{}`", self.lexeme.escape_default())
         };
 
-        write!(
-            f,
-            "{:>4}:{:<3} {:<22} {}",
-            self.line, self.column, type_label, lexeme
+        let type_colored = if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
+            style.paint(&type_padded, &["1", "31"])
+        } else if is_operator_token(&self.token_type) {
+            style.paint(&type_padded, &["1", "33"])
+        } else if is_literal_token(&self.token_type) {
+            style.paint(&type_padded, &["1", "35"])
+        } else {
+            style.paint(&type_padded, &["1", "36"])
+        };
+
+        let lexeme_colored = if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
+            style.fg_red(&lexeme_raw)
+        } else {
+            style.fg_green(&lexeme_raw)
+        };
+
+        format!(
+            "{} {} {}",
+            style.fg_gray(&pos),
+            type_colored,
+            lexeme_colored
         )
     }
+}
+
+fn is_operator_token(token_type: &TokenType) -> bool {
+    matches!(
+        token_type,
+        TokenType::Operator
+            | TokenType::ShortArrow
+            | TokenType::FatArrow
+            | TokenType::LambdaArrow
+            | TokenType::DoubleColon
+            | TokenType::TripleDot
+            | TokenType::Pipe
+    )
+}
+
+fn is_literal_token(token_type: &TokenType) -> bool {
+    matches!(
+        token_type,
+        TokenType::IntLiteral
+            | TokenType::FloatLiteral
+            | TokenType::StringLiteral
+            | TokenType::MultilineStringLiteral
+            | TokenType::InterpolatedStringLiteral
+            | TokenType::BoolLiteral
+            | TokenType::UnitLiteral
+    )
+}
+
+fn is_error_token(token_type: &TokenType) -> bool {
+    matches!(
+        token_type,
+        TokenType::Unknown
+            | TokenType::UnterminatedString
+            | TokenType::UnterminatedComment
+            | TokenType::InvalidUnit
+    )
 }
 
 pub struct Tokenizer {
@@ -242,7 +306,6 @@ impl Tokenizer {
             "as",
             "to",
             "latest",
-            "state",
             "diff",
             "history",
             "current",
@@ -428,8 +491,8 @@ impl Tokenizer {
             return Some(self.identifier());
         }
 
-        // Handle effect markers
-        if self.peek() == '!' && (self.peek_next().is_alphabetic() || self.peek_next() == '_') {
+        // Handle effect markers: only when name starts with uppercase.
+        if self.peek() == '!' && self.peek_next().is_ascii_uppercase() {
             return Some(self.effect_marker());
         }
 

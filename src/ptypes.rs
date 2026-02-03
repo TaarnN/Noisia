@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use crate::tokenizer::Token;
+use crate::style::Style;
 use std::fmt;
 
 #[derive(Debug)]
@@ -28,48 +29,77 @@ pub enum ParseError {
 impl fmt::Display for ParseError {
     // note: human friendly parse error
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pretty(&Style::plain()))
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+impl ParseError {
+    pub fn pretty(&self, style: &Style) -> String {
         match self {
             ParseError::UnexpectedToken {
                 expected,
                 found,
                 idx,
-            } => write!(
-                f,
-                "error[parse] Unexpected token\n  at {}:{} (token #{})\n  expected: {}\n  found: {:?} {}",
-                found.line,
-                found.column,
-                idx,
-                expected,
-                found.token_type,
-                if found.lexeme.is_empty() {
+            } => {
+                let header = style.paint("error[parse] Unexpected token", &["1", "31"]);
+                let loc = style.fg_yellow(&format!("{}:{}", found.line, found.column));
+                let idx_note = style.dim(&format!("(token #{})", idx));
+                let expected_line = format!(
+                    "  {} {}",
+                    style.dim("expected:"),
+                    style.fg_cyan(expected)
+                );
+                let found_lexeme = if found.lexeme.is_empty() {
                     "<empty>".to_string()
                 } else {
                     format!("`{}`", found.lexeme.escape_default())
-                }
-            ),
+                };
+                let found_value = format!("{:?} {}", found.token_type, found_lexeme);
+                let found_line = format!(
+                    "  {} {}",
+                    style.dim("found:"),
+                    style.fg_green(&found_value)
+                );
+                format!(
+                    "{}\n  {} {} {}\n{}\n{}",
+                    header,
+                    style.dim("at"),
+                    loc,
+                    idx_note,
+                    expected_line,
+                    found_line
+                )
+            }
             ParseError::EOF {
                 message,
                 line,
                 column,
-            } => write!(
-                f,
-                "error[parse] Unexpected end of input\n  at {}:{}\n  details: {}",
-                line, column, message
-            ),
+            } => {
+                let header = style.paint("error[parse] Unexpected end of input", &["1", "31"]);
+                let loc = style.fg_yellow(&format!("{}:{}", line, column));
+                let details = format!("  {} {}", style.dim("details:"), style.fg_cyan(message));
+                format!("{}\n  {} {}\n{}", header, style.dim("at"), loc, details)
+            }
             ParseError::Generic {
                 message,
                 line,
                 column,
-            } => write!(
-                f,
-                "error[parse] {}\n  at {}:{}",
-                message, line, column
-            ),
+            } => {
+                let header = style.paint("error[parse]", &["1", "31"]);
+                let loc = style.fg_yellow(&format!("{}:{}", line, column));
+                format!(
+                    "{} {}\n  {} {}",
+                    header,
+                    style.fg_cyan(message),
+                    style.dim("at"),
+                    loc
+                )
+            }
         }
     }
 }
-
-impl std::error::Error for ParseError {}
 
 // note: parser result alias
 pub type ParseResult<T> = Result<T, ParseError>;
