@@ -36,7 +36,11 @@ pub enum TokenType {
     FloatLiteral,
     StringLiteral,
     MultilineStringLiteral,
-    InterpolatedStringLiteral,
+    InterpolatedStringStart,
+    InterpolatedStringText,
+    InterpolatedStringEnd,
+    InterpolatedExprStart,
+    InterpolatedExprEnd,
     RegexLiteral,
     BoolLiteral,
     UnitLiteral,
@@ -154,7 +158,9 @@ fn is_literal_token(token_type: &TokenType) -> bool {
             | TokenType::FloatLiteral
             | TokenType::StringLiteral
             | TokenType::MultilineStringLiteral
-            | TokenType::InterpolatedStringLiteral
+            | TokenType::InterpolatedStringStart
+            | TokenType::InterpolatedStringText
+            | TokenType::InterpolatedStringEnd
             | TokenType::RegexLiteral
             | TokenType::BoolLiteral
             | TokenType::UnitLiteral
@@ -172,6 +178,12 @@ fn is_error_token(token_type: &TokenType) -> bool {
     )
 }
 
+#[derive(Debug, Clone, Copy)]
+enum InterpolatedState {
+    String,
+    Expr { brace_depth: usize },
+}
+
 pub struct Tokenizer {
     input: Vec<char>,
     current: usize,
@@ -180,6 +192,7 @@ pub struct Tokenizer {
     keywords: HashMap<String, TokenType>,
     operators: HashMap<String, TokenType>,
     last_non_comment_lexeme: Option<String>,
+    interp_stack: Vec<InterpolatedState>,
 }
 
 impl Tokenizer {
@@ -192,6 +205,7 @@ impl Tokenizer {
             keywords: HashMap::new(),
             operators: HashMap::new(),
             last_non_comment_lexeme: None,
+            interp_stack: Vec::new(),
         };
 
         tokenizer.init_keywords();
@@ -420,7 +434,9 @@ impl Tokenizer {
         let mut tokens = Vec::new();
 
         while !self.is_at_end() {
-            self.skip_whitespace();
+            if !matches!(self.interp_stack.last(), Some(InterpolatedState::String)) {
+                self.skip_whitespace();
+            }
 
             if self.is_at_end() {
                 break;
@@ -460,6 +476,20 @@ impl Tokenizer {
     }
 
     fn scan_token(&mut self) -> Option<Token> {
+        match self.interp_stack.last() {
+            Some(InterpolatedState::String) => {
+                return Some(self.scan_interpolated_string_token());
+            }
+            Some(InterpolatedState::Expr { .. }) => {
+                return self.scan_interpolated_expr_token();
+            }
+            None => {}
+        }
+
+        self.scan_token_normal()
+    }
+
+    fn scan_token_normal(&mut self) -> Option<Token> {
         let start_line = self.line;
         let start_column = self.column;
 
@@ -498,7 +528,15 @@ impl Tokenizer {
 
         // Handle interpolated strings
         if self.peek() == '$' && self.peek_next() == '"' {
-            return Some(self.interpolated_string());
+            self.advance(); // consume '$'
+            self.advance(); // consume '"'
+            self.interp_stack.push(InterpolatedState::String);
+            return Some(Token::new(
+                TokenType::InterpolatedStringStart,
+                "$\"".to_string(),
+                start_line,
+                start_column,
+            ));
         }
 
         // Handle numbers
@@ -679,28 +717,116 @@ impl Tokenizer {
         )
     }
 
-    fn interpolated_string(&mut self) -> Token {
+    fn scan_interpolated_string_token(&mut self) -> Token {
         let start_line = self.line;
         let start_column = self.column;
-        let mut lexeme = String::new();
 
-        lexeme.push(self.advance()); // consume '$'
-        lexeme.push(self.advance()); // consume '"'
-
-        while !self.is_at_end() && self.peek() != '"' {
-            lexeme.push(self.advance());
+        if self.is_at_end() {
+            return Token::new(
+                TokenType::UnterminatedString,
+                String::new(),
+                start_line,
+                start_column,
+            );
         }
 
-        if !self.is_at_end() {
-            lexeme.push(self.advance()); // consume closing '"'
+        match self.peek() {
+            '"' => {
+                self.advance();
+                self.interp_stack.pop();
+                return Token::new(
+                    TokenType::InterpolatedStringEnd,
+                    "\"".to_string(),
+                    start_line,
+                    start_column,
+                );
+            }
+            '{' => {
+                self.advance();
+                if let Some(top) = self.interp_stack.last_mut() {
+                    *top = InterpolatedState::Expr { brace_depth: 0 };
+                }
+                return Token::new(
+                    TokenType::InterpolatedExprStart,
+                    "{".to_string(),
+                    start_line,
+                    start_column,
+                );
+            }
+            _ => {}
+        }
+
+        let mut text = String::new();
+        while !self.is_at_end() {
+            let ch = self.peek();
+            if ch == '"' || ch == '{' {
+                break;
+            }
+            if ch == '\\' {
+                text.push(self.advance());
+                if !self.is_at_end() {
+                    text.push(self.advance());
+                }
+                continue;
+            }
+            text.push(self.advance());
+        }
+
+        if self.is_at_end() && text.is_empty() {
+            return Token::new(
+                TokenType::UnterminatedString,
+                text,
+                start_line,
+                start_column,
+            );
         }
 
         Token::new(
-            TokenType::InterpolatedStringLiteral,
-            lexeme,
+            TokenType::InterpolatedStringText,
+            text,
             start_line,
             start_column,
         )
+    }
+
+    fn scan_interpolated_expr_token(&mut self) -> Option<Token> {
+        let start_line = self.line;
+        let start_column = self.column;
+
+        let brace_depth = match self.interp_stack.last() {
+            Some(InterpolatedState::Expr { brace_depth }) => *brace_depth,
+            _ => 0,
+        };
+
+        if self.peek() == '}' && brace_depth == 0 {
+            self.advance();
+            if let Some(top) = self.interp_stack.last_mut() {
+                *top = InterpolatedState::String;
+            }
+            return Some(Token::new(
+                TokenType::InterpolatedExprEnd,
+                "}".to_string(),
+                start_line,
+                start_column,
+            ));
+        }
+
+        let token_opt = self.scan_token_normal();
+        if let Some(ref token) = token_opt {
+            if let Some(InterpolatedState::Expr { brace_depth }) = self.interp_stack.last_mut() {
+                match token.token_type {
+                    TokenType::LeftBrace => *brace_depth += 1,
+                    TokenType::RightBrace => {
+                        if *brace_depth > 0 {
+                            *brace_depth -= 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        token_opt
     }
 
     fn number(&mut self) -> Token {

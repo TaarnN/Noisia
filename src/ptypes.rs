@@ -115,11 +115,18 @@ pub struct Program {
 pub enum Item {
     ModuleDecl(ModuleDecl),
     Import(ImportDecl),
+    MacroDecl(MacroDecl),
+    ExtensionDecl(ExtensionDecl),
+    IGMDecl(IGMDecl),
+    PluginDecl(PluginDecl),
     Function(FunctionDecl),
     Struct(StructDecl),
     Enum(EnumDecl),
     Trait(TraitDecl),
     Impl(ImplDecl),
+    MixinDecl(MixinDecl),
+    InterfaceDecl(InterfaceDecl),
+    ProtocolDecl(ProtocolDecl),
     Class(ClassDecl),
 }
 
@@ -144,6 +151,105 @@ pub struct ImportDecl {
 }
 
 #[derive(Debug, Clone)]
+// note: macro declaration
+pub struct MacroDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: macro name
+    pub name: String,
+    // note: macro params as raw identifiers
+    pub params: Vec<String>,
+    // note: macro body
+    pub body: Block,
+}
+
+#[derive(Debug, Clone)]
+// note: extension declaration
+pub struct ExtensionDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: optional receiver binding name
+    pub receiver: Option<String>,
+    // note: target type for extension
+    pub target: TypeRef,
+    // note: method list
+    pub methods: Vec<FunctionDecl>,
+}
+
+#[derive(Debug, Clone)]
+// note: inline grammar macro declaration
+pub struct IGMDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: macro name
+    pub name: String,
+    // note: regex pattern string
+    pub pattern: String,
+    // note: expand params
+    pub expand_params: Vec<Param>,
+    // note: expand expression
+    pub expand: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+// note: plugin declaration
+pub struct PluginDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: plugin name
+    pub name: String,
+    // note: optional activation condition
+    pub condition: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+// note: mixin declaration
+pub struct MixinDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: mixin name
+    pub name: String,
+    // note: field list
+    pub fields: Vec<ClassFieldDecl>,
+    // note: property list
+    pub properties: Vec<ClassPropertyDecl>,
+    // note: delegate list
+    pub delegates: Vec<ClassDelegateDecl>,
+    // note: method list
+    pub methods: Vec<FunctionDecl>,
+}
+
+#[derive(Debug, Clone)]
+// note: interface declaration
+pub struct InterfaceDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: interface name
+    pub name: String,
+    // note: generic params
+    pub generics: Vec<GenericParam>,
+    // note: method list
+    pub methods: Vec<FunctionDecl>,
+}
+
+#[derive(Debug, Clone)]
+// note: protocol declaration
+pub struct ProtocolDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: protocol name
+    pub name: String,
+    // note: generic params
+    pub generics: Vec<GenericParam>,
+    // note: associated types
+    pub associated_types: Vec<String>,
+    // note: method list
+    pub methods: Vec<FunctionDecl>,
+    // note: extension method list
+    pub extensions: Vec<FunctionDecl>,
+}
+
+#[derive(Debug, Clone)]
 // note: function signature and body
 pub struct FunctionDecl {
     // note: raw @attrs in source order
@@ -160,6 +266,8 @@ pub struct FunctionDecl {
     pub generics: Vec<GenericParam>,
     // note: param list
     pub params: Vec<Param>,
+    // note: context params after (using ...)
+    pub context_params: Vec<Param>,
     // note: return type or None
     pub ret_type: Option<TypeRef>,
     // note: effect list after marker
@@ -222,6 +330,9 @@ pub enum Visibility {
 pub enum FunctionModifier {
     Async,
     Multidispatch,
+    Constexpr,
+    Scoped,
+    Comptime,
 }
 
 #[derive(Debug, Clone)]
@@ -322,6 +433,14 @@ pub struct ClassDecl {
     pub implements: Vec<TypeRef>,
     // note: field list
     pub fields: Vec<ClassFieldDecl>,
+    // note: property list
+    pub properties: Vec<ClassPropertyDecl>,
+    // note: static init blocks
+    pub static_inits: Vec<Block>,
+    // note: deinit block
+    pub deinit: Option<Block>,
+    // note: delegate list
+    pub delegates: Vec<ClassDelegateDecl>,
     // note: constructor list
     pub ctors: Vec<ConstructorDecl>,
     // note: method list
@@ -343,6 +462,40 @@ pub struct ClassFieldDecl {
     pub typ: TypeRef,
     // note: default value
     pub value: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+// note: class property
+pub struct ClassPropertyDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: access level
+    pub vis: Visibility,
+    // note: property name
+    pub name: String,
+    // note: optional type
+    pub typ: Option<TypeRef>,
+    // note: computed value expression
+    pub value: Option<Expr>,
+    // note: getter block
+    pub getter: Option<Block>,
+    // note: setter param name
+    pub setter_param: Option<String>,
+    // note: setter block
+    pub setter_body: Option<Block>,
+}
+
+#[derive(Debug, Clone)]
+// note: class delegate
+pub struct ClassDelegateDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: access level
+    pub vis: Visibility,
+    // note: delegate name
+    pub name: String,
+    // note: target expression
+    pub target: Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -394,7 +547,7 @@ pub enum Stmt {
         body: Block,
     },
     For {
-        pat: String,
+        pattern: Pattern,
         iter: Expr,
         body: Block,
     },
@@ -459,6 +612,92 @@ pub enum Stmt {
     PanicUnless {
         condition: Expr,
     },
+    Scope {
+        body: Block,
+    },
+    Defer {
+        expr: Expr,
+    },
+    Checkpoint {
+        name: Option<String>,
+        metadata: Option<Expr>,
+        body: Block,
+    },
+    Rewind {
+        target: Option<Expr>,
+        condition: Option<Expr>,
+        query: Option<Block>,
+    },
+    Inspect {
+        target: Option<Expr>,
+        filter: Option<Block>,
+        body: Option<Block>,
+    },
+    TemporalScope {
+        name: Option<String>,
+        body: Block,
+    },
+    TemporalTransaction {
+        config: Option<Expr>,
+        body: Block,
+        catch_name: Option<String>,
+        catch_block: Option<Block>,
+    },
+    TemporalTest {
+        name: String,
+        body: Block,
+    },
+    TemporalMemory {
+        config: Option<Expr>,
+        body: Block,
+    },
+    BatchTemporal {
+        body: Block,
+        optimize: Option<Expr>,
+    },
+    Replay {
+        recording: Expr,
+        body: Block,
+    },
+    Snapshot {
+        name: Option<String>,
+        metadata: Option<Expr>,
+    },
+    Rollback {
+        target: Option<Expr>,
+        condition: Option<Expr>,
+        metadata: Option<Expr>,
+    },
+    DebugTemporal {
+        body: Block,
+    },
+    TemporalHandle {
+        body: Block,
+        handlers: Vec<TemporalClause>,
+    },
+    TemporalMatch {
+        target: Expr,
+        clauses: Vec<TemporalClause>,
+    },
+}
+
+#[derive(Debug, Clone)]
+// note: temporal pattern
+pub struct TemporalPattern {
+    // note: pattern kind keyword
+    pub kind: String,
+    // note: raw args for the pattern
+    pub args: Vec<Expr>,
+    // note: optional condition
+    pub condition: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+// note: temporal clause
+pub struct TemporalClause {
+    pub pattern: TemporalPattern,
+    pub guard: Option<Expr>,
+    pub body: Block,
 }
 
 #[derive(Debug, Clone)]
@@ -531,6 +770,15 @@ pub enum Expr {
     Await(Box<Expr>),
     Spawn(Box<Expr>),
     Try(Box<Expr>),
+    IfExpr {
+        cond: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
+    },
+    MatchExpr {
+        expr: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
     Binary {
         left: Box<Expr>,
         op: String,
@@ -541,6 +789,7 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
     Grouping(Box<Expr>),
+    Block(Block),
     Call {
         callee: Box<Expr>,
         generics: Vec<TypeRef>,
@@ -556,15 +805,34 @@ pub enum Expr {
         object: Box<Expr>,
         field: String,
     },
+    OptionalFieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
     Index {
         array: Box<Expr>,
         index: Box<Expr>,
+    },
+    Slice {
+        target: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
     },
     Lambda {
         params: Vec<Param>,
         body: Box<Expr>,
     },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+        step: Option<Box<Expr>>,
+    },
     Pipeline {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    SelectorPipeline {
         left: Box<Expr>,
         right: Box<Expr>,
     },
@@ -574,6 +842,42 @@ pub enum Expr {
         iter: Box<Expr>,
         guard: Option<Box<Expr>>,
     },
+    Coalesce {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    OptionalCall {
+        callee: Box<Expr>,
+        generics: Vec<TypeRef>,
+        args: Vec<Expr>,
+    },
+    InterpolatedString {
+        parts: Vec<InterpolatedPart>,
+    },
+    MacroCall {
+        name: String,
+        args: Vec<Expr>,
+    },
+    PointerDeref {
+        expr: Box<Expr>,
+    },
+    PointerNew {
+        pointer_type: PointerType,
+        expr: Box<Expr>,
+    },
+}
+
+#[derive(Debug, Clone)]
+// note: interpolated string part kind
+pub enum InterpolatedPartKind {
+    Text(String),
+    Expr(Expr),
+}
+
+#[derive(Debug, Clone)]
+// note: interpolated string part
+pub struct InterpolatedPart {
+    pub kind: InterpolatedPartKind,
 }
 
 #[derive(Debug, Clone)]

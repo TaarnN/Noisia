@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
 #![allow(dead_code)]
+#![allow(unused_mut)]
 
 use crate::ptypes::*;
 use crate::style::Style;
@@ -13,11 +14,18 @@ impl fmt::Display for Item {
         match self {
             Item::ModuleDecl(inner) => write!(f, "{:#?}", inner),
             Item::Import(inner) => write!(f, "{:#?}", inner),
+            Item::MacroDecl(inner) => write!(f, "{:#?}", inner),
+            Item::ExtensionDecl(inner) => write!(f, "{:#?}", inner),
+            Item::IGMDecl(inner) => write!(f, "{:#?}", inner),
+            Item::PluginDecl(inner) => write!(f, "{:#?}", inner),
             Item::Function(inner) => write!(f, "{:#?}", inner),
             Item::Struct(inner) => write!(f, "{:#?}", inner),
             Item::Enum(inner) => write!(f, "{:#?}", inner),
             Item::Trait(inner) => write!(f, "{:#?}", inner),
             Item::Impl(inner) => write!(f, "{:#?}", inner),
+            Item::MixinDecl(inner) => write!(f, "{:#?}", inner),
+            Item::InterfaceDecl(inner) => write!(f, "{:#?}", inner),
+            Item::ProtocolDecl(inner) => write!(f, "{:#?}", inner),
             Item::Class(inner) => write!(f, "{:#?}", inner),
         }
     }
@@ -28,11 +36,18 @@ impl Item {
         let raw = match self {
             Item::ModuleDecl(inner) => format!("{:#?}", inner),
             Item::Import(inner) => format!("{:#?}", inner),
+            Item::MacroDecl(inner) => format!("{:#?}", inner),
+            Item::ExtensionDecl(inner) => format!("{:#?}", inner),
+            Item::IGMDecl(inner) => format!("{:#?}", inner),
+            Item::PluginDecl(inner) => format!("{:#?}", inner),
             Item::Function(inner) => format!("{:#?}", inner),
             Item::Struct(inner) => format!("{:#?}", inner),
             Item::Enum(inner) => format!("{:#?}", inner),
             Item::Trait(inner) => format!("{:#?}", inner),
             Item::Impl(inner) => format!("{:#?}", inner),
+            Item::MixinDecl(inner) => format!("{:#?}", inner),
+            Item::InterfaceDecl(inner) => format!("{:#?}", inner),
+            Item::ProtocolDecl(inner) => format!("{:#?}", inner),
             Item::Class(inner) => format!("{:#?}", inner),
         };
 
@@ -119,6 +134,22 @@ fn starts_with_closer(trimmed: &str) -> bool {
         trimmed.chars().next(),
         Some('}') | Some(']') | Some(')')
     )
+}
+
+fn strip_string_delimiters(lexeme: &str) -> String {
+    if lexeme.len() >= 6 && lexeme.starts_with("\"\"\"") && lexeme.ends_with("\"\"\"") {
+        return lexeme[3..lexeme.len() - 3].to_string();
+    }
+
+    if lexeme.len() >= 2 {
+        let first = lexeme.as_bytes()[0] as char;
+        let last = lexeme.as_bytes()[lexeme.len() - 1] as char;
+        if (first == '"' || first == '\'') && first == last {
+            return lexeme[1..lexeme.len() - 1].to_string();
+        }
+    }
+
+    lexeme.to_string()
 }
 
 pub struct Parser {
@@ -460,6 +491,10 @@ impl Parser {
         self.expect(TokenType::LeftBrace)?;
 
         let mut fields = Vec::new();
+        let mut properties = Vec::new();
+        let mut static_inits = Vec::new();
+        let mut deinit = None;
+        let mut delegates = Vec::new();
         let mut ctors = Vec::new();
         let mut methods = Vec::new();
 
@@ -536,6 +571,10 @@ impl Parser {
             mixins,
             implements,
             fields,
+            properties,
+            static_inits,
+            deinit,
+            delegates,
             ctors,
             methods,
         })
@@ -642,9 +681,28 @@ impl Parser {
         let mut modifiers = Vec::new();
         let mut is_async = false;
 
-        if self.match_tnv(TokenType::Keyword, "async") {
-            modifiers.push(FunctionModifier::Async);
-            is_async = true;
+        loop {
+            let mut matched = false;
+            if self.match_tnv(TokenType::Keyword, "async") {
+                modifiers.push(FunctionModifier::Async);
+                is_async = true;
+                matched = true;
+            }
+            if self.match_tnv(TokenType::Keyword, "constexpr") {
+                modifiers.push(FunctionModifier::Constexpr);
+                matched = true;
+            }
+            if self.match_tnv(TokenType::Keyword, "comptime") {
+                modifiers.push(FunctionModifier::Comptime);
+                matched = true;
+            }
+            if self.match_tnv(TokenType::Keyword, "scope") {
+                modifiers.push(FunctionModifier::Scoped);
+                matched = true;
+            }
+            if !matched {
+                break;
+            }
         }
 
         self.expect_nv(TokenType::Keyword, "fn")?;
@@ -662,27 +720,45 @@ impl Parser {
             Vec::new()
         };
 
+        fn parse_param(this: &mut Parser) -> ParseResult<Param> {
+            let pattern = this.parse_pattern()?;
+            let mut typ = None;
+            if this.match_one(TokenType::Colon) {
+                typ = Some(this.parse_type()?);
+            }
+            let mut default = None;
+            if this.match_tnv(TokenType::Operator, "=") {
+                default = Some(this.parse_expression(0)?);
+            }
+            Ok(Param {
+                pattern,
+                typ,
+                default,
+            })
+        }
+
         self.expect(TokenType::LeftParen)?;
-        let params = self.parse_comma_separated(
-            |tok| tok.token_type == TokenType::RightParen,
-            |this| {
-                let pattern = this.parse_pattern()?;
-                let mut typ = None;
-                if this.match_one(TokenType::Colon) {
-                    typ = Some(this.parse_type()?);
-                }
-                let mut default = None;
-                if this.match_tnv(TokenType::Operator, "=") {
-                    default = Some(this.parse_expression(0)?);
-                }
-                Ok(Param {
-                    pattern,
-                    typ,
-                    default,
-                })
-            },
-        )?;
+        let params =
+            self.parse_comma_separated(|tok| tok.token_type == TokenType::RightParen, parse_param)?;
         self.expect(TokenType::RightParen)?;
+
+        let mut context_params = Vec::new();
+        let has_context_params = self.peek().token_type == TokenType::LeftParen
+            && self
+                .tokens
+                .get(self.idx + 1)
+                .map_or(false, |tok| {
+                    tok.token_type == TokenType::Keyword && tok.lexeme == "using"
+                });
+        if has_context_params {
+            self.expect(TokenType::LeftParen)?;
+            self.expect_nv(TokenType::Keyword, "using")?;
+            context_params = self.parse_comma_separated(
+                |tok| tok.token_type == TokenType::RightParen,
+                parse_param,
+            )?;
+            self.expect(TokenType::RightParen)?;
+        }
 
         let ret_type = if self.match_one(TokenType::FatArrow) {
             Some(self.parse_type()?)
@@ -719,6 +795,7 @@ impl Parser {
             name,
             generics,
             params,
+            context_params,
             ret_type,
             effects,
             where_clauses,
@@ -1228,7 +1305,11 @@ impl Parser {
             "for" => {
                 self.advance();
                 let pat_tok = self.expect(TokenType::Identifier)?;
-                let pat = pat_tok.lexeme.clone();
+                let pat_name = pat_tok.lexeme.clone();
+                let pattern = Pattern {
+                    kind: PatternKind::Identifier(pat_name.clone()),
+                    bindings: vec![pat_name],
+                };
                 self.expect_nv(TokenType::Keyword, "in")?;
 
                 let iter = self.parse_expr_with_struct_literal_guard(false)?;
@@ -1238,7 +1319,11 @@ impl Parser {
                 } else {
                     self.parse_block()?
                 };
-                Ok(Stmt::For { pat, iter, body })
+                Ok(Stmt::For {
+                    pattern,
+                    iter,
+                    body,
+                })
             }
             "loop" => {
                 self.advance();
@@ -1538,10 +1623,47 @@ impl Parser {
             }
 
             let next_min = if right_assoc { prec } else { prec + 1 };
+
+            if op_lex == ".." || op_lex == "..=" {
+                let inclusive = op_lex == "..=";
+                let end = if self.is_range_end_delimiter() {
+                    None
+                } else {
+                    Some(self.parse_expression(next_min)?)
+                };
+                let step = if self.match_tnv(TokenType::Keyword, "by") {
+                    Some(Box::new(self.parse_expression(0)?))
+                } else {
+                    None
+                };
+
+                left = Expr::Range {
+                    start: Some(Box::new(left)),
+                    end: end.map(Box::new),
+                    inclusive,
+                    step,
+                };
+                continue;
+            }
+
+            if op_lex == "??" {
+                let right = self.parse_expression(next_min)?;
+                left = Expr::Coalesce {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+                continue;
+            }
+
             let right = self.parse_expression(next_min)?;
 
             if op_lex == "|>" {
                 left = Expr::Pipeline {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            } else if op_lex == ">>" {
+                left = Expr::SelectorPipeline {
                     left: Box::new(left),
                     right: Box::new(right),
                 };
@@ -1557,9 +1679,106 @@ impl Parser {
         Ok(left)
     }
 
+    // note: parse if/elif/else expression
+    fn parse_if_expr(&mut self) -> ParseResult<Expr> {
+        self.expect_nv(TokenType::Keyword, "if")?;
+        self.parse_if_expr_tail()
+    }
+
+    fn parse_if_expr_tail(&mut self) -> ParseResult<Expr> {
+        let cond = self.parse_expression(0)?;
+        let then_block = self.parse_block_or_expr_body()?;
+        let then_expr = Expr::Block(then_block);
+
+        let else_branch = if self.match_tnv(TokenType::Keyword, "elif") {
+            Some(Box::new(self.parse_if_expr_tail()?))
+        } else if self.match_tnv(TokenType::Keyword, "else") {
+            let else_block = self.parse_block_or_expr_body()?;
+            Some(Box::new(Expr::Block(else_block)))
+        } else {
+            None
+        };
+
+        Ok(Expr::IfExpr {
+            cond: Box::new(cond),
+            then_branch: Box::new(then_expr),
+            else_branch,
+        })
+    }
+
+    // note: parse match expression
+    fn parse_match_expr(&mut self) -> ParseResult<Expr> {
+        self.expect_nv(TokenType::Keyword, "match")?;
+        let expr = self.parse_expr_with_struct_literal_guard(false)?;
+        self.expect(TokenType::LeftBrace)?;
+
+        let mut arms = Vec::new();
+        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+            let pattern = self.parse_pattern()?;
+            let guard = if self.match_tnv(TokenType::Keyword, "if") {
+                Some(self.parse_expression(0)?)
+            } else {
+                None
+            };
+            self.expect(TokenType::ShortArrow)?;
+            let body = self.parse_expression(0)?;
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+            });
+        }
+
+        self.expect(TokenType::RightBrace)?;
+        Ok(Expr::MatchExpr {
+            expr: Box::new(expr),
+            arms,
+        })
+    }
+
+    fn is_range_end_delimiter(&self) -> bool {
+        if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "by" {
+            return true;
+        }
+
+        matches!(
+            self.peek().token_type,
+            TokenType::RightBracket
+                | TokenType::RightParen
+                | TokenType::RightBrace
+                | TokenType::Comma
+                | TokenType::Semicolon
+                | TokenType::ShortArrow
+                | TokenType::FatArrow
+                | TokenType::EOF
+        )
+    }
+
     // note: unary then primary+postfix
     fn parse_unary_or_primary(&mut self) -> ParseResult<Expr> {
         let tok = self.peek().clone();
+
+        if tok.token_type == TokenType::Operator && (tok.lexeme == ".." || tok.lexeme == "..=") {
+            let inclusive = tok.lexeme == "..=";
+            self.advance();
+            let end = if self.is_range_end_delimiter() {
+                None
+            } else {
+                Some(self.parse_expression(0)?)
+            };
+            let step = if self.match_tnv(TokenType::Keyword, "by") {
+                Some(Box::new(self.parse_expression(0)?))
+            } else {
+                None
+            };
+
+            return Ok(Expr::Range {
+                start: None,
+                end: end.map(Box::new),
+                inclusive,
+                step,
+            });
+        }
 
         if tok.token_type == TokenType::Keyword {
             if tok.lexeme == "await" {
@@ -1593,6 +1812,16 @@ impl Parser {
     // note: parse literals, ids, groups
     fn parse_primary(&mut self) -> ParseResult<Expr> {
         let tok = self.peek().clone();
+
+        if tok.token_type == TokenType::Keyword {
+            if tok.lexeme == "if" {
+                return self.parse_if_expr();
+            }
+            if tok.lexeme == "match" {
+                return self.parse_match_expr();
+            }
+        }
+
         match tok.token_type {
             TokenType::LambdaArrow => {
                 self.advance();
@@ -1628,11 +1857,11 @@ impl Parser {
                     u: u.to_string(),
                 }))
             }
-            TokenType::StringLiteral
-            | TokenType::InterpolatedStringLiteral
-            | TokenType::MultilineStringLiteral => {
+            TokenType::InterpolatedStringStart => self.parse_interpolated_string(),
+            TokenType::StringLiteral | TokenType::MultilineStringLiteral => {
                 self.advance();
-                Ok(Expr::Literal(Literal::String(tok.lexeme)))
+                let value = strip_string_delimiters(&tok.lexeme);
+                Ok(Expr::Literal(Literal::String(value)))
             }
             TokenType::BoolLiteral => {
                 self.advance();
@@ -1741,6 +1970,89 @@ impl Parser {
         }
     }
 
+    fn parse_interpolated_string(&mut self) -> ParseResult<Expr> {
+        let start_tok = self.expect(TokenType::InterpolatedStringStart)?;
+        let mut parts: Vec<InterpolatedPart> = Vec::new();
+
+        loop {
+            let tok = self.peek().clone();
+            match tok.token_type {
+                TokenType::InterpolatedStringText => {
+                    self.advance();
+                    if !tok.lexeme.is_empty() {
+                        parts.push(InterpolatedPart {
+                            kind: InterpolatedPartKind::Text(tok.lexeme),
+                        });
+                    }
+                }
+                TokenType::InterpolatedExprStart => {
+                    let expr_start = self.advance().clone();
+                    let mut expr_tokens: Vec<Token> = Vec::new();
+
+                    while !self.is_at_end()
+                        && self.peek().token_type != TokenType::InterpolatedExprEnd
+                    {
+                        expr_tokens.push(self.advance().clone());
+                    }
+
+                    if self.peek().token_type != TokenType::InterpolatedExprEnd {
+                        return Err(ParseError::Generic {
+                            message: "Unterminated interpolated expression".into(),
+                            line: expr_start.line,
+                            column: expr_start.column,
+                        });
+                    }
+
+                    self.advance(); // consume InterpolatedExprEnd
+
+                    if expr_tokens.is_empty() {
+                        return Err(ParseError::Generic {
+                            message: "Empty interpolated expression".into(),
+                            line: expr_start.line,
+                            column: expr_start.column,
+                        });
+                    }
+
+                    let mut sub_parser = Parser::new(expr_tokens);
+                    let expr = sub_parser.parse_expression(0)?;
+
+                    if !sub_parser.is_at_end() {
+                        let tok = sub_parser.peek().clone();
+                        return Err(ParseError::UnexpectedToken {
+                            expected: "end of interpolated expression".into(),
+                            found: tok,
+                            idx: sub_parser.idx,
+                        });
+                    }
+
+                    parts.push(InterpolatedPart {
+                        kind: InterpolatedPartKind::Expr(expr),
+                    });
+                }
+                TokenType::InterpolatedStringEnd => {
+                    self.advance();
+                    break;
+                }
+                TokenType::EOF => {
+                    return Err(ParseError::Generic {
+                        message: "Unterminated interpolated string".into(),
+                        line: start_tok.line,
+                        column: start_tok.column,
+                    });
+                }
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "interpolated string content".into(),
+                        found: tok,
+                        idx: self.idx,
+                    });
+                }
+            }
+        }
+
+        Ok(Expr::InterpolatedString { parts })
+    }
+
     // note: look for list comp pipe at top-level in current bracket
     fn find_list_comp_pipe(&self, start_idx: usize) -> Option<usize> {
         let mut depth_paren: i32 = 0;
@@ -1843,6 +2155,54 @@ impl Parser {
         false
     }
 
+    fn find_slice_operator(&self, start_idx: usize) -> Option<usize> {
+        let mut depth_paren: i32 = 0;
+        let mut depth_brace: i32 = 0;
+        let mut depth_bracket: i32 = 0;
+        let mut i = start_idx;
+
+        while i < self.tokens.len() {
+            let tok = &self.tokens[i];
+            let at_top = depth_paren == 0 && depth_brace == 0 && depth_bracket == 0;
+
+            if at_top {
+                match tok.token_type {
+                    TokenType::RightBracket => return None,
+                    TokenType::Operator if tok.lexeme == ".." || tok.lexeme == "..=" => {
+                        return Some(i)
+                    }
+                    _ => {}
+                }
+            }
+
+            match tok.token_type {
+                TokenType::LeftParen => depth_paren += 1,
+                TokenType::RightParen => {
+                    if depth_paren > 0 {
+                        depth_paren -= 1;
+                    }
+                }
+                TokenType::LeftBrace => depth_brace += 1,
+                TokenType::RightBrace => {
+                    if depth_brace > 0 {
+                        depth_brace -= 1;
+                    }
+                }
+                TokenType::LeftBracket => depth_bracket += 1,
+                TokenType::RightBracket => {
+                    if depth_bracket > 0 {
+                        depth_bracket -= 1;
+                    }
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+
+        None
+    }
+
     // note: parse expression from current idx up to end_idx (exclusive)
     fn parse_expression_slice(&mut self, end_idx: usize) -> ParseResult<Expr> {
         let sub_tokens = self.tokens[self.idx..end_idx].to_vec();
@@ -1867,6 +2227,52 @@ impl Parser {
         let mut expr = left;
         loop {
             match self.peek().token_type {
+                TokenType::Operator if self.peek().lexeme == "?." => {
+                    self.advance();
+                    if self.peek().token_type == TokenType::LeftParen {
+                        self.advance();
+                        let args = self.parse_arguments()?;
+                        self.expect(TokenType::RightParen)?;
+                        expr = Expr::OptionalCall {
+                            callee: Box::new(expr),
+                            generics: Vec::new(),
+                            args,
+                        };
+                        continue;
+                    }
+
+                    let field_or_method = self.expect(TokenType::Identifier)?.lexeme;
+                    let mut generics = Vec::new();
+                    if self.peek().token_type == TokenType::Operator && self.peek().lexeme == "<" {
+                        self.advance();
+                        generics = self.parse_generic_args()?;
+                    }
+
+                    if self.peek().token_type == TokenType::LeftParen {
+                        self.advance();
+                        let args = self.parse_arguments()?;
+                        self.expect(TokenType::RightParen)?;
+                        let callee = Expr::FieldAccess {
+                            object: Box::new(expr),
+                            field: field_or_method.clone(),
+                        };
+                        expr = Expr::OptionalCall {
+                            callee: Box::new(callee),
+                            generics,
+                            args,
+                        };
+                    } else {
+                        if !generics.is_empty() {
+                            return Err(self.error_here(
+                                "Unexpected generics without optional call",
+                            ));
+                        }
+                        expr = Expr::OptionalFieldAccess {
+                            object: Box::new(expr),
+                            field: field_or_method,
+                        };
+                    }
+                }
                 TokenType::Dot => {
                     self.advance();
                     let field_or_method = self.expect(TokenType::Identifier)?.lexeme;
@@ -1899,12 +2305,54 @@ impl Parser {
                 }
                 TokenType::LeftBracket => {
                     self.advance();
-                    let index_expr = self.parse_expression(0)?;
-                    self.expect(TokenType::RightBracket)?;
-                    expr = Expr::Index {
-                        array: Box::new(expr),
-                        index: Box::new(index_expr),
-                    };
+                    if let Some(op_idx) = self.find_slice_operator(self.idx) {
+                        let start = if op_idx == self.idx {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expression_slice(op_idx)?))
+                        };
+
+                        self.advance();
+
+                        let end = if self.peek().token_type == TokenType::RightBracket {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expression(0)?))
+                        };
+
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Slice {
+                            target: Box::new(expr),
+                            start,
+                            end,
+                        };
+                    } else {
+                        let index_expr = self.parse_expression(0)?;
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Index {
+                            array: Box::new(expr),
+                            index: Box::new(index_expr),
+                        };
+                    }
+                }
+                TokenType::Operator if self.peek().lexeme == "!" => {
+                    if let Expr::Ident(name) = &expr {
+                        if matches!(
+                            self.tokens.get(self.idx + 1),
+                            Some(t) if t.token_type == TokenType::LeftParen
+                        ) {
+                            self.advance();
+                            self.expect(TokenType::LeftParen)?;
+                            let args = self.parse_arguments()?;
+                            self.expect(TokenType::RightParen)?;
+                            expr = Expr::MacroCall {
+                                name: name.clone(),
+                                args,
+                            };
+                            continue;
+                        }
+                    }
+                    break;
                 }
                 TokenType::Operator if self.peek().lexeme == "<" => {
                     // note: look ahead to confirm <...>( ) call
@@ -2311,14 +2759,14 @@ impl Parser {
 // note: operator precedence table
 pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
     match tok.lexeme.as_str() {
-        "||" | "or" => Some((1, false)),
-        "&&" | "and" => Some((2, false)),
+        "??" | "||" | "or" => Some((1, false)),
+        ".." | "..=" | "&&" | "and" => Some((2, false)),
         "==" | "!=" | "<" | "<=" | ">" | ">=" => Some((3, false)),
-        "|>" => Some((11, false)),
+        "|>" | ">>" => Some((11, false)),
         "|" => Some((4, false)),
         "^" => Some((5, false)),
         "&" => Some((6, false)),
-        "<<" | ">>" => Some((7, false)),
+        "<<" => Some((7, false)),
         "+" | "-" => Some((8, false)),
         "*" | "/" | "%" => Some((9, false)),
         "^." => Some((10, false)),
