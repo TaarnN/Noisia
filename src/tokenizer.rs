@@ -37,6 +37,7 @@ pub enum TokenType {
     StringLiteral,
     MultilineStringLiteral,
     InterpolatedStringLiteral,
+    RegexLiteral,
     BoolLiteral,
     UnitLiteral,
 
@@ -62,6 +63,7 @@ pub enum TokenType {
     UnterminatedString,
     UnterminatedComment,
     InvalidUnit,
+    UnterminatedRegex,
     // End of file
     EOF,
 }
@@ -153,6 +155,7 @@ fn is_literal_token(token_type: &TokenType) -> bool {
             | TokenType::StringLiteral
             | TokenType::MultilineStringLiteral
             | TokenType::InterpolatedStringLiteral
+            | TokenType::RegexLiteral
             | TokenType::BoolLiteral
             | TokenType::UnitLiteral
     )
@@ -163,6 +166,7 @@ fn is_error_token(token_type: &TokenType) -> bool {
         token_type,
         TokenType::Unknown
             | TokenType::UnterminatedString
+            | TokenType::UnterminatedRegex
             | TokenType::UnterminatedComment
             | TokenType::InvalidUnit
     )
@@ -175,6 +179,7 @@ pub struct Tokenizer {
     column: usize,
     keywords: HashMap<String, TokenType>,
     operators: HashMap<String, TokenType>,
+    last_non_comment_lexeme: Option<String>,
 }
 
 impl Tokenizer {
@@ -186,6 +191,7 @@ impl Tokenizer {
             column: 1,
             keywords: HashMap::new(),
             operators: HashMap::new(),
+            last_non_comment_lexeme: None,
         };
 
         tokenizer.init_keywords();
@@ -301,6 +307,7 @@ impl Tokenizer {
             "analyze",
             "assert",
             "breakpoint",
+            "debug",
             "at",
             "between",
             "as",
@@ -325,6 +332,9 @@ impl Tokenizer {
             "ending",
             "is",
             "lifetime",
+            "plugin",
+            "yield",
+            "by",
         ];
 
         for keyword in keywords.iter().copied() {
@@ -369,6 +379,7 @@ impl Tokenizer {
             ("..=", TokenType::Operator),
             ("..", TokenType::Operator),
             ("??", TokenType::Operator),
+            ("?.", TokenType::Operator),
             (".?", TokenType::Operator),
             ("<=>", TokenType::Operator),
             ("<=", TokenType::Operator),
@@ -420,10 +431,14 @@ impl Tokenizer {
 
             match self.scan_token() {
                 Some(token) if token.token_type == TokenType::Comment => {}
-                Some(token) => tokens.push(token),
+                Some(token) => {
+                    self.last_non_comment_lexeme = Some(token.lexeme.clone());
+                    tokens.push(token);
+                }
                 None => {
                     // Skip unknown character and create error token
                     let ch = self.advance();
+                    self.last_non_comment_lexeme = Some(ch.to_string());
                     tokens.push(Token::new(
                         TokenType::Unknown,
                         ch.to_string(),
@@ -447,6 +462,11 @@ impl Tokenizer {
     fn scan_token(&mut self) -> Option<Token> {
         let start_line = self.line;
         let start_column = self.column;
+
+        // Handle regex literals in pattern contexts
+        if self.regex_allowed() && self.peek() == '/' && self.peek_next() != '/' && self.peek_next() != '*' {
+            return Some(self.regex_literal());
+        }
 
         // Handle comments first
         if self.peek() == '/' && self.peek_next() == '/' {
@@ -927,6 +947,13 @@ impl Tokenizer {
         self.current >= self.input.len()
     }
 
+    fn regex_allowed(&self) -> bool {
+        matches!(
+            self.last_non_comment_lexeme.as_deref(),
+            Some("pattern") | Some("=")
+        )
+    }
+
     fn peek(&self) -> char {
         if self.is_at_end() {
             '\0'
@@ -960,5 +987,42 @@ impl Tokenizer {
             self.column += 1;
             ch
         }
+    }
+
+    fn regex_literal(&mut self) -> Token {
+        let start_line = self.line;
+        let start_column = self.column;
+        let mut lexeme = String::new();
+        let mut in_char_class = false;
+
+        lexeme.push(self.advance()); // consume opening '/'
+
+        while !self.is_at_end() {
+            let ch = self.advance();
+            lexeme.push(ch);
+
+            if ch == '\\' {
+                if !self.is_at_end() {
+                    lexeme.push(self.advance());
+                }
+                continue;
+            }
+
+            match ch {
+                '[' => in_char_class = true,
+                ']' if in_char_class => in_char_class = false,
+                '/' if !in_char_class => {
+                    return Token::new(TokenType::RegexLiteral, lexeme, start_line, start_column)
+                }
+                _ => {}
+            }
+        }
+
+        Token::new(
+            TokenType::UnterminatedRegex,
+            lexeme,
+            start_line,
+            start_column,
+        )
     }
 }
