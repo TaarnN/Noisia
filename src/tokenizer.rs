@@ -58,9 +58,7 @@ pub enum TokenType {
 
     // Special tokens
     LambdaArrow,
-    CompileTimeKeyword,
     EffectMarker,
-    IGMKeyword,
 
     // Error recovery
     Unknown,
@@ -275,6 +273,9 @@ impl Tokenizer {
             "defer",
             "comptime",
             "constexpr",
+            "compile-time",
+            "stringify",
+            "emit",
             "using",
             "where",
             "atomically",
@@ -358,12 +359,6 @@ impl Tokenizer {
             } else if keyword == "and" || keyword == "or" || keyword == "not" {
                 self.keywords
                     .insert(keyword.to_string(), TokenType::Operator);
-            } else if keyword == "igm" || keyword == "pattern" || keyword == "expand" {
-                self.keywords
-                    .insert(keyword.to_string(), TokenType::IGMKeyword);
-            } else if keyword == "compile-time" || keyword == "stringify" || keyword == "emit" {
-                self.keywords
-                    .insert(keyword.to_string(), TokenType::CompileTimeKeyword);
             } else {
                 self.keywords
                     .insert(keyword.to_string(), TokenType::Keyword);
@@ -924,7 +919,7 @@ impl Tokenizer {
         let start_column = self.column;
         let mut lexeme = String::new();
 
-        while self.peek().is_alphanumeric() || self.peek() == '_' {
+        while self.peek().is_alphanumeric() || self.peek() == '_' || self.peek() == '-' {
             lexeme.push(self.advance());
         }
 
@@ -935,7 +930,7 @@ impl Tokenizer {
             self.advance();
 
             // Continue reading the rest of the path
-            while self.peek().is_alphanumeric() || self.peek() == '_' {
+            while self.peek().is_alphanumeric() || self.peek() == '_' || self.peek() == '-' {
                 lexeme.push(self.advance());
 
                 if self.peek() == ':' && self.peek_next() == ':' {

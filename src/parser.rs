@@ -240,6 +240,37 @@ impl Parser {
         }
     }
 
+    // note: require keyword or identifier with exact text
+    fn expect_word(&mut self, v: &str) -> ParseResult<Token> {
+        let tok = self.peek().clone();
+        if (tok.token_type == TokenType::Keyword || tok.token_type == TokenType::Identifier)
+            && tok.lexeme == v
+        {
+            Ok(self.advance().clone())
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: format!("'{}'", v),
+                found: tok,
+                idx: self.idx,
+            })
+        }
+    }
+
+    // note: detect checkpoint statement start
+    fn is_checkpoint_stmt_start(&self) -> bool {
+        match self.tokens.get(self.idx + 1) {
+            Some(t) if t.token_type == TokenType::LeftBrace => true,
+            Some(t)
+                if t.token_type == TokenType::StringLiteral
+                    || t.token_type == TokenType::MultilineStringLiteral =>
+            {
+                true
+            }
+            Some(t) if t.token_type == TokenType::Keyword && t.lexeme == "with" => true,
+            _ => false,
+        }
+    }
+
     // note: eat token by type if present
     fn match_one(&mut self, t: TokenType) -> bool {
         if self.peek().token_type == t {
@@ -408,7 +439,23 @@ impl Parser {
                     symbols,
                 }))
             }
-            "fn" | "async" => {
+            "macro" => {
+                let m = self.parse_macro(attributes)?;
+                Ok(Item::MacroDecl(m))
+            }
+            "extension" => {
+                let e = self.parse_extension(attributes)?;
+                Ok(Item::ExtensionDecl(e))
+            }
+            "igm" => {
+                let i = self.parse_igm(attributes)?;
+                Ok(Item::IGMDecl(i))
+            }
+            "plugin" => {
+                let p = self.parse_plugin(attributes)?;
+                Ok(Item::PluginDecl(p))
+            }
+            "fn" | "async" | "constexpr" | "comptime" => {
                 let vis = visibility.unwrap_or(Visibility::Public);
                 let func = self.parse_function_with(attributes, vis)?;
                 Ok(Item::Function(func))
@@ -1166,7 +1213,6 @@ impl Parser {
                 TokenType::Identifier
                     | TokenType::ModulePath
                     | TokenType::Keyword
-                    | TokenType::IGMKeyword
             ) && matches!(
                 self.tokens.get(self.idx + 1),
                 Some(t) if t.token_type == TokenType::LeftBrace
@@ -1210,16 +1256,16 @@ impl Parser {
 
     // note: parse try/catch statement
     fn parse_try_catch_stmt(&mut self) -> ParseResult<Stmt> {
-        self.expect_nv(TokenType::Keyword, "try")?;
+        self.expect_word("try")?;
         let try_block = self.parse_block()?;
-        self.expect_nv(TokenType::Keyword, "catch")?;
+        self.expect_word("catch")?;
 
         let catch_name = if self.match_one(TokenType::LeftParen) {
-            let name = self.expect(TokenType::Identifier)?.lexeme;
+            let name = self.expect_ident_like()?.lexeme;
             self.expect(TokenType::RightParen)?;
             name
         } else {
-            self.expect(TokenType::Identifier)?.lexeme
+            self.expect_ident_like()?.lexeme
         };
 
         let catch_block = self.parse_block()?;
@@ -1228,6 +1274,541 @@ impl Parser {
             try_block,
             catch_name,
             catch_block,
+        })
+    }
+
+    // note: parse string literal value
+    fn parse_string_literal_value(&mut self) -> ParseResult<String> {
+        let tok = if self.peek().token_type == TokenType::StringLiteral
+            || self.peek().token_type == TokenType::MultilineStringLiteral
+        {
+            self.advance().clone()
+        } else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "String literal".into(),
+                found: self.peek().clone(),
+                idx: self.idx,
+            });
+        };
+        Ok(strip_string_delimiters(&tok.lexeme))
+    }
+
+    // note: parse record literal in braces with a synthetic name
+    fn parse_named_record_literal(&mut self, name: &str) -> ParseResult<Expr> {
+        self.expect(TokenType::LeftBrace)?;
+        let fields = self.parse_struct_fields()?;
+        Ok(Expr::Literal(Literal::Struct {
+            name: name.to_string(),
+            base: None,
+            fields,
+        }))
+    }
+
+    // note: check if a block is followed by another block
+    fn block_followed_by_block(&self, start_idx: usize) -> bool {
+        if !matches!(
+            self.tokens.get(start_idx),
+            Some(t) if t.token_type == TokenType::LeftBrace
+        ) {
+            return false;
+        }
+
+        let mut depth = 0usize;
+        let mut i = start_idx;
+        while i < self.tokens.len() {
+            match self.tokens[i].token_type {
+                TokenType::LeftBrace => depth += 1,
+                TokenType::RightBrace => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(i + 1),
+                            Some(t) if t.token_type == TokenType::LeftBrace
+                        );
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
+    // note: parse checkpoint statement
+    fn parse_checkpoint_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("checkpoint")?;
+
+        let mut name = None;
+        let mut metadata = None;
+
+        if self.peek().token_type == TokenType::StringLiteral
+            || self.peek().token_type == TokenType::MultilineStringLiteral
+        {
+            name = Some(self.parse_string_literal_value()?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "with") {
+            let meta = if self.peek().token_type == TokenType::LeftBrace {
+                self.parse_named_record_literal("metadata")?
+            } else {
+                self.parse_expression(0)?
+            };
+            metadata = Some(meta);
+        }
+
+        let body = self.parse_block()?;
+
+        if self.match_tnv(TokenType::Keyword, "as") {
+            let label = self.parse_string_literal_value()?;
+            if name.is_some() {
+                return Err(self.error_here("Checkpoint name already specified"));
+            }
+            name = Some(label);
+        }
+
+        Ok(Stmt::Checkpoint {
+            name,
+            metadata,
+            body,
+        })
+    }
+
+    // note: parse rewind statement
+    fn parse_rewind_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("rewind")?;
+
+        let mut target = None;
+        let mut condition = None;
+        let mut query = None;
+
+        if self.match_tnv(TokenType::Keyword, "to") {
+            target = Some(self.parse_expression(0)?);
+        } else if !matches!(
+            self.peek().token_type,
+            TokenType::Semicolon | TokenType::RightBrace | TokenType::EOF
+        ) && !(self.peek().token_type == TokenType::Keyword
+            && (self.peek().lexeme == "if" || self.peek().lexeme == "where"))
+        {
+            target = Some(self.parse_expression(0)?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "if") {
+            condition = Some(self.parse_expression(0)?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "where") {
+            query = Some(self.parse_block()?);
+        }
+
+        if self.peek().token_type == TokenType::Semicolon {
+            self.advance();
+        }
+
+        Ok(Stmt::Rewind {
+            target,
+            condition,
+            query,
+        })
+    }
+
+    // note: parse inspect statement
+    fn parse_inspect_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("inspect")?;
+
+        let mut target = None;
+        let mut filter = None;
+        let mut body = None;
+
+        let should_parse_target = !matches!(
+            self.peek().token_type,
+            TokenType::LeftBrace | TokenType::Semicolon | TokenType::RightBrace | TokenType::EOF
+        );
+
+        if should_parse_target {
+            let start_idx = self.idx;
+            let mut i = self.idx;
+            while i < self.tokens.len() {
+                let tok = &self.tokens[i];
+                if tok.token_type == TokenType::LeftBrace
+                    || tok.token_type == TokenType::Semicolon
+                    || tok.token_type == TokenType::RightBrace
+                    || (tok.token_type == TokenType::Keyword && tok.lexeme == "where")
+                {
+                    break;
+                }
+                i += 1;
+            }
+
+            if i == start_idx {
+                return Err(self.error_here("Expected inspect target"));
+            }
+
+            if i - start_idx == 1 {
+                let sub_tokens = self.tokens[start_idx..i].to_vec();
+                let mut sub_parser = Parser::new(sub_tokens);
+                let expr = sub_parser.parse_expression(0)?;
+                if !sub_parser.is_at_end() {
+                    return Err(self.error_here("Invalid inspect target"));
+                }
+                self.idx = i;
+                target = Some(expr);
+            } else {
+                let mut phrase = String::new();
+                for (idx, tok) in self.tokens[start_idx..i].iter().enumerate() {
+                    if idx > 0 {
+                        phrase.push(' ');
+                    }
+                    phrase.push_str(&tok.lexeme);
+                }
+                self.idx = i;
+                target = Some(Expr::Literal(Literal::String(phrase)));
+            }
+        }
+
+        if self.match_tnv(TokenType::Keyword, "where") {
+            filter = Some(self.parse_block()?);
+        }
+
+        if self.peek().token_type == TokenType::LeftBrace {
+            body = Some(self.parse_block()?);
+        }
+
+        if self.peek().token_type == TokenType::Semicolon {
+            self.advance();
+        }
+
+        Ok(Stmt::Inspect {
+            target,
+            filter,
+            body,
+        })
+    }
+
+    // note: parse snapshot statement
+    fn parse_snapshot_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("snapshot")?;
+
+        let mut name = None;
+        let mut metadata = None;
+
+        if self.peek().token_type == TokenType::StringLiteral
+            || self.peek().token_type == TokenType::MultilineStringLiteral
+        {
+            name = Some(self.parse_string_literal_value()?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "with")
+            || self.peek().token_type == TokenType::LeftBrace
+        {
+            let meta = if self.peek().token_type == TokenType::LeftBrace {
+                self.parse_named_record_literal("metadata")?
+            } else {
+                self.parse_expression(0)?
+            };
+            metadata = Some(meta);
+        }
+
+        if self.peek().token_type == TokenType::Semicolon {
+            self.advance();
+        }
+
+        Ok(Stmt::Snapshot { name, metadata })
+    }
+
+    // note: parse rollback statement
+    fn parse_rollback_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("rollback")?;
+
+        let mut target = None;
+        let mut condition = None;
+        let mut metadata = None;
+
+        if self.match_tnv(TokenType::Keyword, "to") {
+            target = Some(self.parse_expression(0)?);
+        } else if !matches!(
+            self.peek().token_type,
+            TokenType::Semicolon | TokenType::RightBrace | TokenType::EOF
+        ) && !(self.peek().token_type == TokenType::Keyword
+            && (self.peek().lexeme == "if" || self.peek().lexeme == "with"))
+        {
+            target = Some(self.parse_expression(0)?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "if") {
+            condition = Some(self.parse_expression(0)?);
+        }
+
+        if self.match_tnv(TokenType::Keyword, "with") {
+            let meta = if self.peek().token_type == TokenType::LeftBrace {
+                self.parse_named_record_literal("metadata")?
+            } else {
+                self.parse_expression(0)?
+            };
+            metadata = Some(meta);
+        }
+
+        if self.peek().token_type == TokenType::Semicolon {
+            self.advance();
+        }
+
+        Ok(Stmt::Rollback {
+            target,
+            condition,
+            metadata,
+        })
+    }
+
+    // note: parse replay statement
+    fn parse_replay_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("replay")?;
+        let recording = self.parse_expr_with_struct_literal_guard(false)?;
+        let body = self.parse_block()?;
+        Ok(Stmt::Replay { recording, body })
+    }
+
+    // note: parse batch temporal statement
+    fn parse_batch_temporal_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("batch")?;
+        self.expect_word("temporal")?;
+
+        let body = self.parse_block()?;
+
+        let mut optimize = None;
+        if self.match_tnv(TokenType::Keyword, "optimize") {
+            let _ = self.match_tnv(TokenType::Keyword, "for");
+            let opt = if self.peek().token_type == TokenType::LeftBrace {
+                self.parse_named_record_literal("optimize")?
+            } else {
+                self.parse_expression(0)?
+            };
+            optimize = Some(opt);
+        }
+
+        Ok(Stmt::BatchTemporal { body, optimize })
+    }
+
+    // note: parse temporal scope statement
+    fn parse_temporal_scope_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("temporal")?;
+        self.expect_word("scope")?;
+
+        let name = if self.peek().token_type == TokenType::StringLiteral
+            || self.peek().token_type == TokenType::MultilineStringLiteral
+        {
+            Some(self.parse_string_literal_value()?)
+        } else {
+            None
+        };
+
+        let body = self.parse_block()?;
+        Ok(Stmt::TemporalScope { name, body })
+    }
+
+    // note: parse temporal transaction statement
+    fn parse_temporal_transaction_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("temporal")?;
+        self.expect_word("transaction")?;
+
+        let mut config = None;
+        let body;
+
+        if self.peek().token_type == TokenType::LeftBrace && self.block_followed_by_block(self.idx)
+        {
+            config = Some(self.parse_named_record_literal("config")?);
+            body = self.parse_block()?;
+        } else {
+            body = self.parse_block()?;
+        }
+
+        let mut catch_name = None;
+        let mut catch_block = None;
+        if self.match_tnv(TokenType::Keyword, "catch")
+            || self.match_tnv(TokenType::Identifier, "catch")
+        {
+            if self.peek().token_type == TokenType::LeftBrace {
+                catch_block = Some(self.parse_block()?);
+            } else {
+                let name = if self.match_one(TokenType::LeftParen) {
+                    let n = self.expect_ident_like()?.lexeme;
+                    self.expect(TokenType::RightParen)?;
+                    n
+                } else {
+                    self.expect_ident_like()?.lexeme
+                };
+                catch_name = Some(name);
+                catch_block = Some(self.parse_block()?);
+            }
+        }
+
+        Ok(Stmt::TemporalTransaction {
+            config,
+            body,
+            catch_name,
+            catch_block,
+        })
+    }
+
+    // note: parse temporal test statement
+    fn parse_temporal_test_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("temporal")?;
+        self.expect_word("test")?;
+
+        let name = if self.peek().token_type == TokenType::StringLiteral
+            || self.peek().token_type == TokenType::MultilineStringLiteral
+        {
+            self.parse_string_literal_value()?
+        } else {
+            self.expect_ident_like()?.lexeme
+        };
+
+        let body = self.parse_block()?;
+        Ok(Stmt::TemporalTest { name, body })
+    }
+
+    // note: parse temporal memory statement
+    fn parse_temporal_memory_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("temporal")?;
+        self.expect_word("memory")?;
+
+        let mut config = None;
+        let body;
+
+        if self.peek().token_type == TokenType::LeftBrace && self.block_followed_by_block(self.idx)
+        {
+            config = Some(self.parse_named_record_literal("config")?);
+            body = self.parse_block()?;
+        } else {
+            body = self.parse_block()?;
+        }
+
+        Ok(Stmt::TemporalMemory { config, body })
+    }
+
+    // note: parse debug temporal statement
+    fn parse_debug_temporal_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("debug")?;
+        self.expect_word("temporal")?;
+        let body = self.parse_block()?;
+        Ok(Stmt::DebugTemporal { body })
+    }
+
+    // note: parse temporal pattern
+    fn parse_temporal_pattern(&mut self) -> ParseResult<TemporalPattern> {
+        let kind_tok = self.expect_ident_like()?;
+        let mut args = Vec::new();
+        if self.match_one(TokenType::LeftParen) {
+            if self.peek().token_type != TokenType::RightParen {
+                args = self.parse_arguments()?;
+            }
+            self.expect(TokenType::RightParen)?;
+        }
+
+        let condition = if self.match_tnv(TokenType::Keyword, "with")
+            || self.match_tnv(TokenType::Keyword, "where")
+        {
+            Some(self.parse_expression(0)?)
+        } else {
+            None
+        };
+
+        Ok(TemporalPattern {
+            kind: kind_tok.lexeme,
+            args,
+            condition,
+        })
+    }
+
+    // note: parse temporal handler clause
+    fn parse_temporal_clause(&mut self) -> ParseResult<TemporalClause> {
+        self.expect_word("on")?;
+        let pattern = self.parse_temporal_pattern()?;
+        let guard = if self.match_tnv(TokenType::Keyword, "if") {
+            Some(self.parse_expression(0)?)
+        } else {
+            None
+        };
+        self.expect(TokenType::ShortArrow)?;
+        let body = self.parse_block_or_expr_body()?;
+        Ok(TemporalClause {
+            pattern,
+            guard,
+            body,
+        })
+    }
+
+    // note: parse handle temporal effects statement
+    fn parse_temporal_handle_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_word("handle")?;
+        self.expect_word("temporal")?;
+        self.expect_word("effects")?;
+        self.expect_word("in")?;
+
+        let body = self.parse_block()?;
+
+        self.expect_word("with")?;
+        self.expect(TokenType::LeftBrace)?;
+        let mut handlers = Vec::new();
+        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+            let clause = self.parse_temporal_clause()?;
+            handlers.push(clause);
+        }
+        self.expect(TokenType::RightBrace)?;
+
+        Ok(Stmt::TemporalHandle { body, handlers })
+    }
+
+    // note: parse if/elif/else statement
+    fn parse_if_stmt(&mut self) -> ParseResult<Stmt> {
+        self.expect_nv(TokenType::Keyword, "if")?;
+        self.parse_if_stmt_tail()
+    }
+
+    fn parse_if_stmt_tail(&mut self) -> ParseResult<Stmt> {
+        let cond = self.parse_expr_with_struct_literal_guard(false)?;
+        let then_block = self.parse_block()?;
+        let else_block = if self.match_tnv(TokenType::Keyword, "elif") {
+            let nested = self.parse_if_stmt_tail()?;
+            Some(Block {
+                stmts: vec![nested],
+            })
+        } else if self.match_tnv(TokenType::Keyword, "else") {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        Ok(Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        })
+    }
+
+    // note: parse pattern list for for-loops
+    fn parse_for_pattern(&mut self) -> ParseResult<Pattern> {
+        let first = self.parse_pattern()?;
+        if !self.match_one(TokenType::Comma) {
+            return Ok(first);
+        }
+
+        let mut patterns = vec![first];
+        let mut bindings = patterns[0].bindings.clone();
+
+        loop {
+            if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "in" {
+                return Err(self.error_here("Expected pattern before 'in'"));
+            }
+            let pat = self.parse_pattern()?;
+            bindings.extend(pat.bindings.clone());
+            patterns.push(pat);
+            if self.match_one(TokenType::Comma) {
+                continue;
+            }
+            break;
+        }
+
+        Ok(Pattern {
+            kind: PatternKind::Tuple(patterns),
+            bindings,
         })
     }
 
@@ -1252,6 +1833,11 @@ impl Parser {
         }
 
         match self.peek().lexeme.as_str() {
+            "compile-time" => {
+                self.expect_nv(TokenType::Keyword, "compile-time")?;
+                let body = self.parse_block()?;
+                Ok(Stmt::CompileTimeBlock { body })
+            }
             "let" => self.parse_let_stmt(),
             "try" => self.parse_try_catch_stmt(),
             "continue" => {
@@ -1298,18 +1884,72 @@ impl Parser {
             }
             "while" => {
                 self.advance();
-                let cond = self.parse_expression(0)?;
+                let cond = self.parse_expr_with_struct_literal_guard(false)?;
                 let body = self.parse_block()?;
                 Ok(Stmt::While { cond, body })
             }
+            "checkpoint" => {
+                if self.is_checkpoint_stmt_start() {
+                    self.parse_checkpoint_stmt()
+                } else {
+                    let expr = self.parse_expression(0)?;
+                    if self.peek().token_type == TokenType::Semicolon {
+                        self.advance();
+                    }
+                    Ok(Stmt::Expr(expr))
+                }
+            }
+            "rewind" => self.parse_rewind_stmt(),
+            "inspect" => self.parse_inspect_stmt(),
+            "snapshot" => self.parse_snapshot_stmt(),
+            "rollback" => self.parse_rollback_stmt(),
+            "replay" => self.parse_replay_stmt(),
+            "batch" => {
+                if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "temporal"
+                ) {
+                    self.parse_batch_temporal_stmt()
+                } else {
+                    let expr = self.parse_expression(0)?;
+                    if self.peek().token_type == TokenType::Semicolon {
+                        self.advance();
+                    }
+                    Ok(Stmt::Expr(expr))
+                }
+            }
+            "temporal" => {
+                if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "scope"
+                ) {
+                    self.parse_temporal_scope_stmt()
+                } else if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "transaction"
+                ) {
+                    self.parse_temporal_transaction_stmt()
+                } else if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "test"
+                ) {
+                    self.parse_temporal_test_stmt()
+                } else if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "memory"
+                ) {
+                    self.parse_temporal_memory_stmt()
+                } else {
+                    let expr = self.parse_expression(0)?;
+                    if self.peek().token_type == TokenType::Semicolon {
+                        self.advance();
+                    }
+                    Ok(Stmt::Expr(expr))
+                }
+            }
             "for" => {
                 self.advance();
-                let pat_tok = self.expect(TokenType::Identifier)?;
-                let pat_name = pat_tok.lexeme.clone();
-                let pattern = Pattern {
-                    kind: PatternKind::Identifier(pat_name.clone()),
-                    bindings: vec![pat_name],
-                };
+                let pattern = self.parse_for_pattern()?;
                 self.expect_nv(TokenType::Keyword, "in")?;
 
                 let iter = self.parse_expr_with_struct_literal_guard(false)?;
@@ -1379,22 +2019,50 @@ impl Parser {
                     Ok(Stmt::Match { expr, arms })
                 }
             }
-            "if" => {
-                let next_idx = self.idx + 1;
-                self.advance();
-                let cond = self.parse_expression(0)?;
-                let then_block = self.parse_block()?;
-                let else_block = if self.peek().lexeme == "else" {
+            "if" => self.parse_if_stmt(),
+            "scope" => {
+                self.expect_nv(TokenType::Keyword, "scope")?;
+                let body = self.parse_block()?;
+                Ok(Stmt::Scope { body })
+            }
+            "defer" => {
+                self.expect_nv(TokenType::Keyword, "defer")?;
+                let expr = self.parse_expression(0)?;
+                if self.peek().token_type == TokenType::Semicolon {
                     self.advance();
-                    Some(self.parse_block()?)
+                }
+                Ok(Stmt::Defer { expr })
+            }
+            "debug" => {
+                if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "temporal"
+                ) {
+                    self.parse_debug_temporal_stmt()
                 } else {
-                    None
-                };
-                Ok(Stmt::If {
-                    cond,
-                    then_block,
-                    else_block,
-                })
+                    let expr = self.parse_expression(0)?;
+                    if self.peek().token_type == TokenType::Semicolon {
+                        self.advance();
+                    }
+                    Ok(Stmt::Expr(expr))
+                }
+            }
+            "handle" => {
+                if matches!(
+                    self.tokens.get(self.idx + 1),
+                    Some(t) if t.lexeme == "temporal"
+                ) && matches!(
+                    self.tokens.get(self.idx + 2),
+                    Some(t) if t.lexeme == "effects"
+                ) {
+                    self.parse_temporal_handle_stmt()
+                } else {
+                    let expr = self.parse_expression(0)?;
+                    if self.peek().token_type == TokenType::Semicolon {
+                        self.advance();
+                    }
+                    Ok(Stmt::Expr(expr))
+                }
             }
             "watch" => {
                 self.expect_nv(TokenType::Keyword, "watch")?;
@@ -1686,7 +2354,7 @@ impl Parser {
     }
 
     fn parse_if_expr_tail(&mut self) -> ParseResult<Expr> {
-        let cond = self.parse_expression(0)?;
+        let cond = self.parse_expr_with_struct_literal_guard(false)?;
         let then_block = self.parse_block_or_expr_body()?;
         let then_expr = Expr::Block(then_block);
 
@@ -1870,8 +2538,7 @@ impl Parser {
             }
             TokenType::Identifier
             | TokenType::ModulePath
-            | TokenType::Keyword
-            | TokenType::IGMKeyword => {
+            | TokenType::Keyword => {
                 let ident = self.advance().lexeme.clone();
                 if self.peek().token_type == TokenType::LeftBrace {
                     self.advance();
@@ -2241,7 +2908,7 @@ impl Parser {
                         continue;
                     }
 
-                    let field_or_method = self.expect(TokenType::Identifier)?.lexeme;
+                    let field_or_method = self.expect_ident_like()?.lexeme;
                     let mut generics = Vec::new();
                     if self.peek().token_type == TokenType::Operator && self.peek().lexeme == "<" {
                         self.advance();
@@ -2275,7 +2942,7 @@ impl Parser {
                 }
                 TokenType::Dot => {
                     self.advance();
-                    let field_or_method = self.expect(TokenType::Identifier)?.lexeme;
+                    let field_or_method = self.expect_ident_like()?.lexeme;
                     let mut generics = Vec::new();
                     if self.peek().token_type == TokenType::Operator && self.peek().lexeme == "<" {
                         self.advance();
@@ -2469,7 +3136,7 @@ impl Parser {
         let fields = self.parse_comma_separated(
             |tok| tok.token_type == TokenType::RightBrace,
             |this| {
-                let field_name = this.expect(TokenType::Identifier)?.lexeme;
+                let field_name = this.expect_ident_like()?.lexeme;
                 this.expect(TokenType::Colon)?;
                 let field_expr = this.parse_expression(0)?;
                 Ok((field_name, field_expr))
@@ -2557,7 +3224,7 @@ impl Parser {
         let mut fields = Vec::new();
         let mut bindings = Vec::new();
         while !self.is_at_end() && self.peek().token_type != TokenType::RightBrace {
-            let field_name = self.expect(TokenType::Identifier)?.lexeme;
+            let field_name = self.expect_ident_like()?.lexeme;
             if self.match_one(TokenType::Colon) {
                 let field_pat = self.parse_pattern()?;
                 bindings.extend(field_pat.bindings.clone());
@@ -2603,7 +3270,7 @@ impl Parser {
                 let (fields, bindings) = self.parse_struct_pattern_fields()?;
                 (PatternKind::Struct { name: None, fields }, bindings)
             }
-            TokenType::Identifier => {
+            TokenType::Identifier | TokenType::Keyword => {
                 let ident = self.advance().lexeme.clone();
                 let is_upper = ident.chars().next().map_or(false, |c| c.is_uppercase());
                 if ident == "_" {
@@ -2752,6 +3419,147 @@ impl Parser {
         Ok(Expr::Lambda {
             params,
             body: Box::new(body),
+        })
+    }
+
+    // note: parse macro name!(params) { ... }
+    fn parse_macro(&mut self, attributes: Vec<String>) -> ParseResult<MacroDecl> {
+        self.expect_nv(TokenType::Keyword, "macro")?;
+        let name = self.expect_ident_like()?;
+        
+        // Parse !(params) part - this should be name! not just !
+        if !(self.peek().token_type == TokenType::Operator && self.peek().lexeme == "!") {
+            return Err(self.error_here("Expected '!' after macro name".to_string()));
+        }
+        self.advance(); // consume '!'
+        
+        // Parse (params) part
+        let mut params = Vec::new();
+        if self.match_one(TokenType::LeftParen) {
+            params = self.parse_comma_separated(
+                |tok| tok.token_type == TokenType::RightParen,
+                |this| Ok(this.expect(TokenType::Identifier)?.lexeme),
+            )?;
+            self.expect(TokenType::RightParen)?;
+        }
+
+        let body = self.parse_block()?;
+        Ok(MacroDecl {
+            attributes,
+            name: name.lexeme,
+            params,
+            body,
+        })
+    }
+
+    // note: parse extension (name: Type) { ... } or extension Type { ... }
+    fn parse_extension(&mut self, attributes: Vec<String>) -> ParseResult<ExtensionDecl> {
+        self.expect_nv(TokenType::Keyword, "extension")?;
+        
+        let (receiver, target) = if self.match_one(TokenType::LeftParen) {
+            // extension (name: Type) form
+            let receiver_name = self.expect(TokenType::Identifier)?.lexeme;
+            self.expect(TokenType::Colon)?;
+            let target_type = self.parse_type()?;
+            self.expect(TokenType::RightParen)?;
+            (Some(receiver_name), target_type)
+        } else {
+            // extension Type form
+            let target_type = self.parse_type()?;
+            (None, target_type)
+        };
+
+        let mut methods = Vec::new();
+        self.expect(TokenType::LeftBrace)?;
+        while !self.match_one(TokenType::RightBrace) && !self.is_at_end() {
+            let method_attrs = self.parse_attributes();
+            let method_vis = self.parse_visibility();
+            let method = self.parse_function_with(method_attrs, method_vis)?;
+            methods.push(method);
+        }
+
+        Ok(ExtensionDecl {
+            attributes,
+            receiver,
+            target,
+            methods,
+        })
+    }
+
+    // note: parse igm name! { pattern = /.../ expand(m: Match) = Expr }
+    fn parse_igm(&mut self, attributes: Vec<String>) -> ParseResult<IGMDecl> {
+        self.expect_nv(TokenType::Keyword, "igm")?;
+        let name = self.expect_ident_like()?;
+        
+        // Parse ! after name
+        if !(self.peek().token_type == TokenType::Operator && self.peek().lexeme == "!") {
+            return Err(self.error_here("Expected '!' after igm name".to_string()));
+        }
+        self.advance(); // consume '!'
+        
+        self.expect(TokenType::LeftBrace)?;
+        
+        // Parse pattern = /regex/
+        self.expect_word("pattern")?;
+        self.expect_nv(TokenType::Operator, "=")?;
+        let pattern = if self.peek().token_type == TokenType::RegexLiteral {
+            self.advance().lexeme.clone()
+        } else {
+            return Err(self.error_here("Expected regex literal".to_string()));
+        };
+        
+        // Parse expand(m: Match) = Expr
+        self.expect_word("expand")?;
+        self.expect(TokenType::LeftParen)?;
+        let expand_params = self.parse_comma_separated(
+            |tok| tok.token_type == TokenType::RightParen,
+            |this| {
+                let param_name = this.expect(TokenType::Identifier)?.lexeme;
+                let mut param_type = None;
+                if this.match_one(TokenType::Colon) {
+                    param_type = Some(this.parse_type()?);
+                }
+                Ok(Param {
+                    pattern: Pattern {
+                        kind: PatternKind::Identifier(param_name.clone()),
+                        bindings: vec![param_name],
+                    },
+                    typ: param_type,
+                    default: None,
+                })
+            },
+        )?;
+        self.expect(TokenType::RightParen)?;
+        
+        self.expect_nv(TokenType::Operator, "=")?;
+        let expand = Some(self.parse_expression(0)?);
+        
+        self.expect(TokenType::RightBrace)?;
+        
+        Ok(IGMDecl {
+            attributes,
+            name: name.lexeme,
+            pattern,
+            expand_params,
+            expand,
+        })
+    }
+
+    // note: parse plugin name when <expr>
+    fn parse_plugin(&mut self, attributes: Vec<String>) -> ParseResult<PluginDecl> {
+        self.expect_nv(TokenType::Keyword, "plugin")?;
+        let name = self.expect_ident_like()?;
+        
+        let condition = if self.match_tnv(TokenType::Keyword, "when") {
+            Some(self.parse_expression(0)?)
+        } else {
+            None
+        };
+        
+        Ok(PluginDecl {
+            attributes,
+            name: name.lexeme,
+            condition,
         })
     }
 }

@@ -679,6 +679,9 @@ pub enum Stmt {
         target: Expr,
         clauses: Vec<TemporalClause>,
     },
+    CompileTimeBlock {
+        body: Block,
+    },
 }
 
 #[derive(Debug, Clone)]
