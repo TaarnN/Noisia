@@ -1,0 +1,5 @@
+fn brokenMatch() {
+    match temporal state {
+        at checkpoint "validation" with errors > 0
+    }
+}

@@ -1,0 +1,33 @@
+class Logger {
+    fn write(msg: String) -> String {
+        return msg
+    }
+}
+
+class Rectangle {
+    width: Int = 10
+    height: Int = 20
+    total :> width * height
+    title: String :> "rect"
+
+    status: String {
+        get :> "ok"
+        set(value) {
+            width = width
+        }
+    }
+
+    @static init {
+        let booted = true
+    }
+
+    delegate logger to Logger()
+
+    deinit {
+        cleanup()
+    }
+
+    fn area() -> Int {
+        return total
+    }
+}

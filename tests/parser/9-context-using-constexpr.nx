@@ -1,0 +1,28 @@
+struct Logger {
+    name: String
+}
+
+struct Cfg {
+    mode: String
+}
+
+constexpr fn fastAdd(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+comptime fn buildTag(name: String) -> String {
+    return name
+}
+
+fn run(task: String)(using logger: Logger, cfg: Cfg) -> String {
+    in context cfg.mode {
+        "dev" :> {
+            emit(task)
+        }
+        "prod" :> {
+            emit(task)
+        }
+    }
+
+    return task
+}

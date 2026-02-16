@@ -1,0 +1,33 @@
+fn controlFlow(x: Int) -> Int {
+    if x > 10 {
+        return x
+    } elif x == 10 {
+        return x + 1
+    } else {
+        return x - 1
+    }
+
+    let label = if x > 0 {
+        "positive"
+    } elif x == 0 {
+        "zero"
+    } else {
+        "negative"
+    }
+
+    let score = match x {
+        0 :> 100
+        _ :> 200
+    }
+
+    match {
+        x > 100 :> {
+            notify("huge")
+        }
+        x > 50 :> {
+            notify("large")
+        }
+    }
+
+    return score
+}

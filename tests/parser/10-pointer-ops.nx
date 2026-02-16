@@ -1,0 +1,15 @@
+struct Node {
+    value: Int
+}
+
+fn pointerStyle(node: Node) {
+    let raw: ~Node = node
+    let managed: @Node = node
+    let weak: &Node = node
+    let shared: +Node = node
+
+    scope {
+        defer cleanup(node)
+        let keep = shared
+    }
+}

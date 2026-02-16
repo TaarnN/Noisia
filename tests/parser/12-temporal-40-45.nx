@@ -1,0 +1,105 @@
+fn temporalSuite(order) {
+    checkpoint "validation" {
+        validate(order)
+    }
+
+    checkpoint {
+        reserve(order)
+    } as "inventory_update"
+
+    checkpoint "payment" with {
+        user: order.user,
+        amount: order.total
+    } {
+        pay(order)
+    }
+
+    checkpoint "light" with config {
+        lightweight: true,
+        variables: ["order"]
+    }
+
+    rewind
+    rewind to "validation"
+    rewind to "inventory_update" if hasError
+    rewind to latest where {
+        checkpoint.user == order.user
+    }
+
+    let r = rewind to "payment" else fallback(order)
+
+    inspect current checkpoint
+    inspect history
+    inspect checkpoints where {
+        name.contains("payment")
+    }
+    inspect state at "validation" {
+        dump(order)
+    }
+    inspect diff between "inventory_update" and "payment" {
+        showChanges(order)
+    }
+
+    temporal scope "outer" {
+        mode: "isolated"
+    } {
+        checkpoint "inside"
+    }
+
+    temporal transaction {
+        timeout: 60,
+        max_rewinds: 5
+    } {
+        checkpoint "tx"
+        process(order)
+    } catch err {
+        cleanup(err)
+    }
+
+    temporal test "workflow" {
+        retries: 3
+    } {
+        checkpoint "setup"
+        runChecks(order)
+    }
+
+    temporal memory {
+        checkpoint_limit: 1000
+    } {
+        checkpoint "memory_mark"
+    }
+
+    batch temporal {
+        checkpoint "b1"
+        checkpoint "b2"
+    } optimize for {
+        memory_usage: "low"
+    }
+
+    debug temporal {
+        breakpoint on rewind to "payment"
+        trace temporal stack
+        analyze temporal performance {
+            checkpoint_overhead,
+            rewind_cost,
+            memory_usage
+        }
+    }
+
+    handle temporal effects in {
+        runTemporal(order)
+    } with {
+        on rewind(checkpoint_name) :> {
+            logRewind(checkpoint_name)
+        }
+
+        on checkpoint(name, metadata) :> {
+            persistCheckpoint(name, metadata)
+        }
+    }
+
+    match temporal state {
+        at checkpoint "validation" with errors > 0 :> handleValidationError()
+        sequence ending with rewind :> markFailed()
+    }
+}

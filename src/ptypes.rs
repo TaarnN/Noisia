@@ -635,6 +635,7 @@ pub enum Stmt {
     },
     TemporalScope {
         name: Option<String>,
+        config: Option<Expr>,
         body: Block,
     },
     TemporalTransaction {
@@ -645,6 +646,7 @@ pub enum Stmt {
     },
     TemporalTest {
         name: String,
+        config: Option<Expr>,
         body: Block,
     },
     TemporalMemory {
@@ -669,7 +671,7 @@ pub enum Stmt {
         metadata: Option<Expr>,
     },
     DebugTemporal {
-        body: Block,
+        clauses: Vec<TemporalClause>,
     },
     TemporalHandle {
         body: Block,
@@ -686,21 +688,28 @@ pub enum Stmt {
 
 #[derive(Debug, Clone)]
 // note: temporal pattern
-pub struct TemporalPattern {
-    // note: pattern kind keyword
-    pub kind: String,
-    // note: raw args for the pattern
-    pub args: Vec<Expr>,
-    // note: optional condition
-    pub condition: Option<Expr>,
+pub enum TemporalPattern {
+    // note: parsed handler pattern with optional condition
+    Parsed {
+        kind: String,
+        args: Vec<Expr>,
+        condition: Option<Expr>,
+    },
+    // note: syntax-preserving pattern tokens for deferred semantics
+    Raw(Vec<Token>),
 }
 
 #[derive(Debug, Clone)]
 // note: temporal clause
-pub struct TemporalClause {
-    pub pattern: TemporalPattern,
-    pub guard: Option<Expr>,
-    pub body: Block,
+pub enum TemporalClause {
+    // note: parsed clause used by handler/match forms
+    Parsed {
+        pattern: TemporalPattern,
+        guard: Option<Expr>,
+        body: Block,
+    },
+    // note: syntax-preserving clause tokens for deferred semantics
+    Raw(Vec<Token>),
 }
 
 #[derive(Debug, Clone)]
@@ -773,6 +782,12 @@ pub enum Expr {
     Await(Box<Expr>),
     Spawn(Box<Expr>),
     Try(Box<Expr>),
+    Rewind {
+        target: Option<Box<Expr>>,
+        condition: Option<Box<Expr>>,
+        query: Option<Block>,
+        else_expr: Option<Box<Expr>>,
+    },
     IfExpr {
         cond: Box<Expr>,
         then_branch: Box<Expr>,

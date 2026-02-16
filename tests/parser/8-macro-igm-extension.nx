@@ -1,0 +1,33 @@
+struct Match {
+    value: String
+}
+
+struct Widget {
+    id: Int
+}
+
+macro trace!(value) {
+    compile-time {
+        println("compile")
+    }
+    return value
+}
+
+extension (selfRef: Widget) {
+    fn label() -> String {
+        return "widget"
+    }
+}
+
+extension Widget {
+    fn idText() -> String {
+        return "id"
+    }
+}
+
+igm pickDigits! {
+    pattern = /[0-9]+/
+    expand(m: Match) = m.value
+}
+
+plugin metrics when true
