@@ -672,14 +672,9 @@ let { x, y, z } = point3D
 
 ---
 
-## 27. List/Sequence Comprehensions
+## ~~27. List/Sequence Comprehensions~~
 
-```nx
-let squares = [ for x in 1..10 yield x*x ]
-let evens   = [ for x in nums if x%2==0 yield x ]
-```
-
-- สร้างลิสต์พร้อมการกรองในบรรทัดเดียว
+...
 
 ---
 

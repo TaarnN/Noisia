@@ -1,0 +1,89 @@
+plugin imageOptimizer when building webAssets
+
+using ConsoleLogger
+
+enum LogLevel {
+    Info,
+    Error,
+}
+
+class Vector2D {
+    friend class MathTools
+
+    @operator +(other: Vector2D) -> Vector2D {
+        return Vector2D()
+    }
+
+    override fn add(&self, other: Vector2D) -> Vector2D {
+        return self
+    }
+
+    init(x: Int) throws {
+        self.x = x
+    }
+}
+
+fn demo(&self, &block: (Int) -> Int) throws -> [Int] {
+    @track data |> t1 |> t2
+    @static @lazy x = 1
+
+    let arr: [Int] = [1, 2]
+    let map: [String:Int] = ["a": 1, "b": 2]
+    let empty = [:]
+    let f: (Int) -> Int = \.value
+
+    let level = .Info
+
+    let rawPtr: ~Int = ~&value
+    let ptr = @new(42) at now() expires 1h
+    let v1 = *ptr
+    let v2 = ptr->
+    let v3 = ptr->?
+    let p2 = ptr +> 2
+    let p3 = p2 <+ 1
+    let dist = p3 <-> ptr
+    let cmp = ptr <@ p3
+    let piped = ptr ~> transform
+
+    let branch1 = branch from "base" { return 1 }
+    merge branch branch1 to current
+
+    retry with rewind up to 3 times {
+        checkpoint "attempt"
+    }
+
+    guard ready else rewind to "start"
+
+    within 30s or rewind to "start" {
+        doWork()
+    }
+
+    rollback order orderId to latest snapshot where {
+        stage == "order_start"
+    }
+
+    replay recording {
+        pause at each checkpoint
+        on checkpoint "output" {
+            modify data.parameters = newParams
+        }
+    }
+
+    auto checkpoint before { doWork() }
+    emit temporal.metric { value: 1 }
+    checkpoint "selective" preserve { keep: true }
+    gc temporal where { checkpoint.count > 0 }
+    assert temporal invariant { checkpoint.count > 0 }
+    assert temporal progress { checkpoint.count > prev.count }
+
+    let tasks = [
+        async { await update() } with checkpoint "db1"
+    ]
+    rewind all tasks to their initial checkpoints
+    rewind task[0] to "db1"
+
+    commit with { checkpoints_used: 1 }
+    cleanup { finalize() }
+
+    return arr
+}

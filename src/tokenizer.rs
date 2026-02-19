@@ -252,6 +252,7 @@ impl Tokenizer {
             "try",
             "catch",
             "throw",
+            "throws",
             // Access & Modifier keywords
             "public",
             "private",
@@ -314,19 +315,24 @@ impl Tokenizer {
             "branch",
             "merge",
             "retry",
+            "expires",
             "snapshot",
             "replay",
             "pause",
             "modify",
             "emit",
             "auto",
+            "cleanup",
             "each",
             "trace",
             "analyze",
             "assert",
+            "invariant",
+            "progress",
             "breakpoint",
             "debug",
             "at",
+            "before",
             "between",
             "as",
             "to",
@@ -353,6 +359,8 @@ impl Tokenizer {
             "plugin",
             "yield",
             "by",
+            "up",
+            "times",
         ];
 
         for keyword in keywords.iter().copied() {
@@ -555,6 +563,9 @@ impl Tokenizer {
         // Handle attributes: only when '@' is followed by a lowercase letter.
         // Otherwise treat '@' as a standalone Operator token and let the next Ident be tokenized separately.
         if self.peek() == '@' {
+            if self.matches_string("@new") {
+                return self.operator();
+            }
             if self.peek_next().is_ascii_lowercase() {
                 return Some(self.attribute());
             } else {
@@ -922,7 +933,10 @@ impl Tokenizer {
         let start_column = self.column;
         let mut lexeme = String::new();
 
-        while self.peek().is_alphanumeric() || self.peek() == '_' || self.peek() == '-' {
+        while self.peek().is_alphanumeric()
+            || self.peek() == '_'
+            || (self.peek() == '-' && (self.peek_next().is_alphanumeric() || self.peek_next() == '_'))
+        {
             lexeme.push(self.advance());
         }
 
@@ -963,7 +977,7 @@ impl Tokenizer {
 
         lexeme.push(self.advance()); // consume '!'
 
-        while self.peek().is_alphanumeric() || self.peek() == '_' {
+        while self.peek().is_alphanumeric() || self.peek() == '_' || self.peek() == '.' {
             lexeme.push(self.advance());
         }
 
@@ -1108,7 +1122,12 @@ impl Tokenizer {
         } else {
             let ch = self.input[self.current];
             self.current += 1;
-            self.column += 1;
+            if ch == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
             ch
         }
     }

@@ -36,6 +36,7 @@ fn parse_success_fixtures_from_plan() {
         "tests/parser/10-pointer-ops.nx",
         "tests/parser/11-class-advanced.nx",
         "tests/parser/12-temporal-40-45.nx",
+        "tests/parser/13-advanced-syntax.nx",
     ];
 
     for fixture in fixtures {
@@ -91,4 +92,20 @@ fn parse_failure_fixtures() {
         let result = parse_program_from_fixture(fixture);
         assert!(result.is_err(), "expected parse failure for {}", fixture);
     }
+}
+
+#[test]
+fn parse_existing_fixture_with_bang_effects() {
+    let program = parse_program_from_fixture("tests/parser/2.nx")
+        .expect("tests/parser/2.nx should parse");
+    let dump = format!("{:#?}", program);
+
+    assert!(
+        dump.contains("name: \"io Read\""),
+        "expected spaced effect name from !io Read syntax"
+    );
+    assert!(
+        dump.contains("name: \"net Write\""),
+        "expected second effect from !net Write syntax"
+    );
 }

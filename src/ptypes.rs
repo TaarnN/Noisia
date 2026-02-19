@@ -115,6 +115,7 @@ pub struct Program {
 pub enum Item {
     ModuleDecl(ModuleDecl),
     Import(ImportDecl),
+    Using(UsingDecl),
     MacroDecl(MacroDecl),
     ExtensionDecl(ExtensionDecl),
     IGMDecl(IGMDecl),
@@ -148,6 +149,15 @@ pub struct ImportDecl {
     pub path: String,
     // note: optional symbols list
     pub symbols: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+// note: using declaration
+pub struct UsingDecl {
+    // note: raw @attrs in source order
+    pub attributes: Vec<String>,
+    // note: target expression
+    pub target: Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -272,6 +282,8 @@ pub struct FunctionDecl {
     pub ret_type: Option<TypeRef>,
     // note: effect list after marker
     pub effects: Vec<Effect>,
+    // note: throws flag
+    pub throws: bool,
     // note: where bounds
     pub where_clauses: Vec<WhereClause>,
     // note: body block or None for decl
@@ -333,6 +345,10 @@ pub enum FunctionModifier {
     Constexpr,
     Scoped,
     Comptime,
+    Override,
+    Virtual,
+    Final,
+    Abstract,
 }
 
 #[derive(Debug, Clone)]
@@ -431,6 +447,8 @@ pub struct ClassDecl {
     pub mixins: Vec<TypeRef>,
     // note: implements list
     pub implements: Vec<TypeRef>,
+    // note: friend class list
+    pub friends: Vec<String>,
     // note: field list
     pub fields: Vec<ClassFieldDecl>,
     // note: property list
@@ -509,6 +527,8 @@ pub struct ConstructorDecl {
     pub name: Option<String>,
     // note: param list
     pub params: Vec<Param>,
+    // note: throws flag
+    pub throws: bool,
     // note: constructor body
     pub body: Block,
 }
@@ -522,6 +542,13 @@ pub struct Block {
 #[derive(Debug, Clone)]
 // note: statement kinds
 pub enum Stmt {
+    Attributed {
+        attributes: Vec<String>,
+        stmt: Box<Stmt>,
+    },
+    Using {
+        target: Expr,
+    },
     Let {
         pattern: Pattern,
         mutable: bool,
@@ -576,6 +603,7 @@ pub enum Stmt {
         time: Expr,
         condition: Option<Expr>,
         body: Block,
+        fallback: Option<Expr>,
     },
     Atomically {
         body: Block,
@@ -622,8 +650,10 @@ pub enum Stmt {
         name: Option<String>,
         metadata: Option<Expr>,
         body: Block,
+        preserve: Option<Block>,
     },
     Rewind {
+        subject: Option<Expr>,
         target: Option<Expr>,
         condition: Option<Expr>,
         query: Option<Block>,
@@ -661,14 +691,56 @@ pub enum Stmt {
         recording: Expr,
         body: Block,
     },
+    ReplayPause {
+        each: bool,
+        checkpoint: Option<Expr>,
+    },
+    ReplayOnCheckpoint {
+        checkpoint: Expr,
+        body: Block,
+    },
+    ReplayModify {
+        target: Expr,
+        value: Expr,
+    },
     Snapshot {
         name: Option<String>,
         metadata: Option<Expr>,
     },
     Rollback {
+        subject: Option<Expr>,
         target: Option<Expr>,
         condition: Option<Expr>,
         metadata: Option<Expr>,
+        query: Option<Block>,
+    },
+    MergeBranch {
+        branch: Expr,
+        target: Expr,
+    },
+    TemporalRetry {
+        max_times: Expr,
+        body: Block,
+    },
+    AutoCheckpoint {
+        body: Block,
+    },
+    Emit {
+        target: Expr,
+        body: Block,
+    },
+    GcTemporal {
+        filter: Option<Block>,
+    },
+    AssertTemporal {
+        kind: String,
+        body: Block,
+    },
+    Commit {
+        metadata: Option<Expr>,
+    },
+    Cleanup {
+        body: Block,
     },
     DebugTemporal {
         clauses: Vec<TemporalClause>,
@@ -733,6 +805,7 @@ pub struct Pattern {
 // note: pattern variants
 pub enum PatternKind {
     Identifier(String),
+    Ref(Box<Pattern>),
     Wildcard,
     Literal(Literal),
     Struct {
@@ -779,10 +852,13 @@ pub struct MatchCondArm {
 pub enum Expr {
     Literal(Literal),
     Ident(String),
+    Phrase(String),
+    EnumCase(String),
     Await(Box<Expr>),
     Spawn(Box<Expr>),
     Try(Box<Expr>),
     Rewind {
+        subject: Option<Box<Expr>>,
         target: Option<Box<Expr>>,
         condition: Option<Box<Expr>>,
         query: Option<Block>,
@@ -808,6 +884,10 @@ pub enum Expr {
     },
     Grouping(Box<Expr>),
     Block(Block),
+    AsyncBlock {
+        body: Block,
+        checkpoint: Option<Box<Expr>>,
+    },
     Call {
         callee: Box<Expr>,
         generics: Vec<TypeRef>,
@@ -850,6 +930,10 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    PointerPipeline {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     SelectorPipeline {
         left: Box<Expr>,
         right: Box<Expr>,
@@ -878,10 +962,22 @@ pub enum Expr {
     },
     PointerDeref {
         expr: Box<Expr>,
+        safe: bool,
+    },
+    PointerRef {
+        pointer_type: PointerType,
+        expr: Box<Expr>,
     },
     PointerNew {
         pointer_type: PointerType,
         expr: Box<Expr>,
+        at: Option<Box<Expr>>,
+        expires: Option<Box<Expr>>,
+    },
+    Branch {
+        name: Option<String>,
+        from: Box<Expr>,
+        body: Block,
     },
 }
 
@@ -911,6 +1007,7 @@ pub enum Literal {
     },
     Array(Vec<Expr>),
     Vector(Vec<Expr>),
+    Map(Vec<(Expr, Expr)>),
     Struct {
         name: String,
         base: Option<Box<Expr>>,
