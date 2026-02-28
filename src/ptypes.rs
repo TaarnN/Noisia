@@ -345,10 +345,6 @@ pub enum FunctionModifier {
     Constexpr,
     Scoped,
     Comptime,
-    Override,
-    Virtual,
-    Final,
-    Abstract,
 }
 
 #[derive(Debug, Clone)]

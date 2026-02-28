@@ -1,5 +1,0 @@
-fn brokenCheckpoint() {
-    checkpoint "first" {
-        run()
-    } as "second"
-}

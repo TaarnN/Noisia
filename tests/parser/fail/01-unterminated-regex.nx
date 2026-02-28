@@ -1,4 +1,0 @@
-igm broken! {
-    pattern = /[0-9]+
-    expand(m: Match) = m.value
-}

@@ -1197,7 +1197,7 @@ class Duck extends Animal with Flyable, Swimmable {
         super(name)
     }
 
-    override fn sound() -> String :> "Quack!"
+    @override fn sound() -> String :> "Quack!"
     fn move() -> String :> "Walking, flying, or swimming"
 
     // Composition pattern with delegation

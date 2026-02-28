@@ -569,7 +569,10 @@ impl Tokenizer {
             if self.peek_next().is_ascii_lowercase() {
                 return Some(self.attribute());
             } else {
-                // consume '@' and return it as an Operator token
+                // Prefer multi-char operators like @> before falling back to standalone '@'.
+                if let Some(token) = self.operator() {
+                    return Some(token);
+                }
                 let ch = self.advance();
                 return Some(Token::new(
                     TokenType::Operator,
@@ -993,6 +996,19 @@ impl Tokenizer {
 
         while self.peek().is_alphanumeric() || self.peek() == '_' {
             lexeme.push(self.advance());
+        }
+
+        // Support dotted attribute names like @checkpoint.production.
+        while self.peek() == '.' {
+            let next = self.peek_next();
+            if !(next.is_alphanumeric() || next == '_') {
+                break;
+            }
+
+            lexeme.push(self.advance()); // consume '.'
+            while self.peek().is_alphanumeric() || self.peek() == '_' {
+                lexeme.push(self.advance());
+            }
         }
 
         // Check for parameterized attribute

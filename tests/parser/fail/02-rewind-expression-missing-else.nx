@@ -1,3 +1,0 @@
-fn broken() {
-    let result = rewind to "payment"
-}

@@ -1,0 +1,5 @@
+fn main() {
+    checkpoint "save-1" preserve {
+        state()
+    }
+}

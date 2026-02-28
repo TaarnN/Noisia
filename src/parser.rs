@@ -290,6 +290,8 @@ impl Parser {
                 true
             }
             Some(t) if t.token_type == TokenType::Keyword && t.lexeme == "with" => true,
+            Some(t) if t.token_type == TokenType::Keyword && t.lexeme == "preserve" => true,
+            Some(t) if t.token_type == TokenType::Keyword && t.lexeme == "as" => true,
             _ => false,
         }
     }
@@ -383,21 +385,7 @@ impl Parser {
 
     fn is_function_start(&self) -> bool {
         let tok = self.peek();
-        if tok.token_type != TokenType::Keyword {
-            return false;
-        }
-        matches!(
-            tok.lexeme.as_str(),
-            "fn"
-                | "async"
-                | "constexpr"
-                | "comptime"
-                | "scope"
-                | "override"
-                | "virtual"
-                | "final"
-                | "abstract"
-        )
+        tok.token_type == TokenType::Keyword && tok.lexeme == "fn"
     }
 
     fn is_phrase_token(tok: &Token) -> bool {
@@ -1172,48 +1160,7 @@ impl Parser {
         visibility: Visibility,
     ) -> ParseResult<FunctionDecl> {
         let mut modifiers = Vec::new();
-        let mut is_async = false;
         let mut throws = false;
-
-        loop {
-            let mut matched = false;
-            if self.match_tnv(TokenType::Keyword, "async") {
-                modifiers.push(FunctionModifier::Async);
-                is_async = true;
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "constexpr") {
-                modifiers.push(FunctionModifier::Constexpr);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "comptime") {
-                modifiers.push(FunctionModifier::Comptime);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "scope") {
-                modifiers.push(FunctionModifier::Scoped);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "override") {
-                modifiers.push(FunctionModifier::Override);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "virtual") {
-                modifiers.push(FunctionModifier::Virtual);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "final") {
-                modifiers.push(FunctionModifier::Final);
-                matched = true;
-            }
-            if self.match_tnv(TokenType::Keyword, "abstract") {
-                modifiers.push(FunctionModifier::Abstract);
-                matched = true;
-            }
-            if !matched {
-                break;
-            }
-        }
 
         self.expect_nv(TokenType::Keyword, "fn")?;
 
@@ -1321,7 +1268,7 @@ impl Parser {
             throws,
             where_clauses,
             body,
-            is_async,
+            is_async: false,
         })
     }
 
@@ -1995,6 +1942,29 @@ impl Parser {
         }))
     }
 
+    // note: detect `{ key: value }`-style payload blocks
+    fn block_starts_as_record_literal(&self, start_idx: usize) -> bool {
+        if !matches!(
+            self.tokens.get(start_idx),
+            Some(t) if t.token_type == TokenType::LeftBrace
+        ) {
+            return false;
+        }
+
+        match (self.tokens.get(start_idx + 1), self.tokens.get(start_idx + 2)) {
+            (Some(t1), _) if t1.token_type == TokenType::RightBrace => true,
+            (
+                Some(t1),
+                Some(t2),
+            ) if matches!(t1.token_type, TokenType::Identifier | TokenType::Keyword)
+                && t2.token_type == TokenType::Colon =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
+
     // note: check if a block is followed by another block
     fn block_followed_by_block(&self, start_idx: usize) -> bool {
         if !matches!(
@@ -2133,13 +2103,22 @@ impl Parser {
 
         if self.match_word("preserve") {
             preserve = if self.peek().token_type == TokenType::LeftBrace {
-                let payload = self.parse_named_record_literal("preserve")?;
-                Some(Block {
-                    stmts: vec![Stmt::Expr(payload)],
-                })
+                if self.block_starts_as_record_literal(self.idx) {
+                    let payload = self.parse_named_record_literal("preserve")?;
+                    Some(Block {
+                        stmts: vec![Stmt::Expr(payload)],
+                    })
+                } else {
+                    Some(self.parse_block()?)
+                }
             } else {
                 Some(self.parse_block()?)
             };
+        }
+
+        // Allow trailing execution body after preserve payload.
+        if body.is_none() && self.peek().token_type == TokenType::LeftBrace {
+            body = Some(self.parse_block()?);
         }
 
         if self.peek().token_type == TokenType::Semicolon {
