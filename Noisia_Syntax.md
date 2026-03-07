@@ -306,7 +306,9 @@ atomically {
   if cart.stock >= qty {
     cart.stock -= qty
     commit()
-  } else rollback()
+  } else {
+    rollback()
+  }
 }
 ```
 
@@ -396,6 +398,7 @@ let result = nums
 ```
 
 - Lambda: `\\args :> body`
+- ใช้ `\_` ถ้าไม่มี args
 - Pipeline: `|>` เชื่อมสายการประมวลผล
 
 ---
@@ -535,7 +538,7 @@ let evens = [ n*2 | n <- [1,2,3,4,5], n % 2 == 0 ]
 
 ```nx
 extension (s: String) {
-    fn shout(self): String { return self.toUpperCase() + "!" }
+    fn shout(self) -> String { return self.toUpperCase() + "!" }
 }
 
 println("hi".shout())
@@ -969,15 +972,11 @@ impl<T> LinkedList<T> {
     fn iter(self) -> Iterator<T> {
         let~ current = self.head
         Iterator {
-            next: || {
-                current.take().map(|node| {
-                    current = node.next->?
-                    node.value->
-                })
-            }
+            next: \_ :> current.take().map(\node :> node.value->)
         }
     }
-}
+} 
+
 ```
 
 - ใช้ managed pointers เพื่อความปลอดภัย
