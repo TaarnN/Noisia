@@ -1,0 +1,9 @@
+fn main() {
+    match self.head {
+        Some(node) :> {
+            self.head = node.next->?
+            Some(node.value->)
+        }
+        None :> None
+    }
+}

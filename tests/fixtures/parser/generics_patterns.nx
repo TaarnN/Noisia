@@ -1,0 +1,9 @@
+enum Result<T, E> { Ok(T), Err(E) }
+
+fn main() {
+    let value = Some(1)
+    match value {
+        Some(x):> x
+        None:> 0
+    }
+}

@@ -1,0 +1,6 @@
+fn main() {
+    match temporal state {
+        branch("alpha") :> checkpoint "a"
+        branch("beta") :> rewind to "a"
+    }
+}

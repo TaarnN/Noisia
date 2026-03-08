@@ -1,0 +1,5 @@
+fn main() {
+    checkpoint "init" with { stage: "boot" } { let x = 1 }
+    rewind session to "init" if ready where { verify() }
+    snapshot "after" with { ok: true }
+}

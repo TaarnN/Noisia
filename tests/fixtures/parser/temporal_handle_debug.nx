@@ -1,0 +1,16 @@
+fn main() {
+    debug temporal {
+        breakpoint at checkpoint("alpha")
+        trace execution where { cond }
+    }
+
+    handle temporal effects in {
+        emit event { key: "v" }
+    } with {
+        on timeout() :> {
+            retry with rewind up to 3 times {
+                checkpoint "r"
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+fn main() {
+    let result = data |> ptr-> transform(*)
+    let server = WebServer.configure { server in
+        server.route("/api/users", handler)
+    }
+}
