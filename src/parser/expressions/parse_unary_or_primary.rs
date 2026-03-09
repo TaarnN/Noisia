@@ -42,6 +42,14 @@ impl Parser {
             return Ok(Expr::Spawn(Box::new(rhs)));
         }
 
+        if matches!(tok.token_type, TokenType::Keyword | TokenType::Identifier)
+            && tok.lexeme == "try"
+        {
+            self.advance();
+            let rhs = self.parse_expression(13)?;
+            return Ok(Expr::Try(Box::new(rhs)));
+        }
+
         if tok.token_type == TokenType::Operator && tok.lexeme == "@new" {
             self.advance();
             return self.parse_pointer_new_with(PointerType::ManagedPointer);

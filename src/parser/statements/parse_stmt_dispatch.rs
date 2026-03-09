@@ -66,13 +66,6 @@ impl Parser {
             }
             "break" => {
                 self.expect_nv(TokenType::Keyword, "break")?;
-                let expr = if self.peek().token_type != TokenType::Semicolon
-                    && self.peek().token_type != TokenType::RightBrace
-                {
-                    Some(self.parse_expression(0)?)
-                } else {
-                    None
-                };
                 if self.peek().token_type == TokenType::Semicolon {
                     self.advance();
                 }
@@ -232,8 +225,7 @@ impl Parser {
                     if self.peek().token_type == TokenType::LeftBrace {
                         self.advance();
                         let mut arms = Vec::new();
-                        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end()
-                        {
+                        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
                             if self.peek().token_type == TokenType::Semicolon {
                                 self.advance();
                                 continue;
@@ -255,8 +247,7 @@ impl Parser {
                         self.expect(TokenType::LeftBrace)?;
 
                         let mut arms = Vec::new();
-                        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end()
-                        {
+                        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
                             if self.peek().token_type == TokenType::Comma
                                 || self.peek().token_type == TokenType::Semicolon
                             {
@@ -549,5 +540,4 @@ impl Parser {
     }
 
     // note: parse in context block
-
 }

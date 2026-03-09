@@ -409,7 +409,7 @@ let result = nums
 macro log!(expr) {
     compile-time {
         let code = stringify(expr)
-        emit($"println("[LOG] " + code + " = " + ({expr}).toString())")
+        emit($"println(\"[LOG] \" + code + \" = \" + ({expr}).toString())")
     }
 }
 
@@ -767,7 +767,7 @@ inspect provenance of data at stage 2
 
 ```nx
 @autotune(maxTime=100ms)
-fn sort(items:[Int]){…}
+fn sort(items:[Int]){...}
 ```
 
 - ทดลองอัลกอริทึมหลายแบบ runtime แล้วเลือกอันเหมาะสมสุด
@@ -789,7 +789,7 @@ plugin dbProfiler   when in debugMode
 
 ```nx
 @secure(level="high")
-fn processPayment(p:Payment){…}
+fn processPayment(p:Payment){...}
 ```
 
 - ปรับกลไกความปลอดภัยตามระดับความเสี่ยง
