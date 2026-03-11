@@ -1,7 +1,11 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_pointer_deref_postfix(&mut self, base: Expr, safe: bool) -> ParseResult<Expr> {
+    pub(in crate::parser) fn parse_pointer_deref_postfix(
+        &mut self,
+        base: Expr,
+        safe: bool,
+    ) -> ParseResult<Expr> {
         let deref = Expr::PointerDeref {
             expr: Box::new(base),
             safe,
@@ -41,6 +45,4 @@ impl Parser {
             })
         }
     }
-
-
 }

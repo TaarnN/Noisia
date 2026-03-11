@@ -74,5 +74,4 @@ impl Parser {
     }
 
     // note: parse snapshot statement
-
 }

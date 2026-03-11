@@ -24,5 +24,4 @@ impl Parser {
     }
 
     // note: parse type with generics and nullable
-
 }

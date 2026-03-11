@@ -100,6 +100,4 @@ impl Parser {
             is_async: false,
         })
     }
-
-
 }

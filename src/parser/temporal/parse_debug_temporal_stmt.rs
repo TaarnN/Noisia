@@ -17,5 +17,4 @@ impl Parser {
     }
 
     // note: parse temporal pattern
-
 }

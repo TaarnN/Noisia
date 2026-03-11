@@ -49,9 +49,9 @@ impl Parser {
                         };
                     } else {
                         if !generics.is_empty() {
-                            return Err(self.error_here(
-                                "Unexpected generics without optional call",
-                            ));
+                            return Err(
+                                self.error_here("Unexpected generics without optional call")
+                            );
                         }
                         expr = Expr::OptionalFieldAccess {
                             object: Box::new(expr),
@@ -79,9 +79,7 @@ impl Parser {
                         };
                     } else {
                         if !generics.is_empty() {
-                            return Err(self.error_here(
-                                "Unexpected generics without method call",
-                            ));
+                            return Err(self.error_here("Unexpected generics without method call"));
                         }
                         expr = Expr::FieldAccess {
                             object: Box::new(expr),
@@ -292,5 +290,4 @@ impl Parser {
     }
 
     // note: parse call argument list
-
 }

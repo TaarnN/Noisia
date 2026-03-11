@@ -21,5 +21,4 @@ impl Parser {
     }
 
     // note: parse inspect statement
-
 }

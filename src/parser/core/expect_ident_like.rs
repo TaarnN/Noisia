@@ -14,5 +14,4 @@ impl Parser {
     }
 
     // note: require token type with exact text
-
 }

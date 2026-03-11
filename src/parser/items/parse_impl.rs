@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_impl(&mut self, attributes: Vec<String>) -> ParseResult<ImplDecl> {
+    pub(in crate::parser) fn parse_impl(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<ImplDecl> {
         self.expect_nv(TokenType::Keyword, "impl")?;
 
         let generics = if self.match_tnv(TokenType::Operator, "<") {
@@ -42,5 +45,4 @@ impl Parser {
     }
 
     // note: parse block statements
-
 }

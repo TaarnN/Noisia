@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_named_record_literal(&mut self, name: &str) -> ParseResult<Expr> {
+    pub(in crate::parser) fn parse_named_record_literal(
+        &mut self,
+        name: &str,
+    ) -> ParseResult<Expr> {
         self.expect(TokenType::LeftBrace)?;
         let fields = self.parse_struct_fields()?;
         Ok(Expr::Literal(Literal::Struct {
@@ -12,5 +15,4 @@ impl Parser {
     }
 
     // note: detect `{ key: value }`-style payload blocks
-
 }

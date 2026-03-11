@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn find_top_level_short_arrow_before_arm_terminator(&self, start_idx: usize) -> Option<usize> {
+    pub(in crate::parser) fn find_top_level_short_arrow_before_arm_terminator(
+        &self,
+        start_idx: usize,
+    ) -> Option<usize> {
         let mut depth_paren: i32 = 0;
         let mut depth_brace: i32 = 0;
         let mut depth_bracket: i32 = 0;
@@ -39,6 +42,4 @@ impl Parser {
 
         None
     }
-
-
 }

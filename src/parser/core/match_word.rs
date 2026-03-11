@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: detect checkpoint statement start
-
 }

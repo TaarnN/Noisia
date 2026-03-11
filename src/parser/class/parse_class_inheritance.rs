@@ -40,5 +40,4 @@ impl Parser {
     }
 
     // note: parse class header and body
-
 }

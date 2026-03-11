@@ -14,5 +14,4 @@ impl Parser {
     }
 
     // note: stop when token is EOF
-
 }

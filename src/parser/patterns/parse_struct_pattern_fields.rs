@@ -35,5 +35,4 @@ impl Parser {
     }
 
     // note: parse pattern and bindings
-
 }

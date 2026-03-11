@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_struct(&mut self, attributes: Vec<String>) -> ParseResult<StructDecl> {
+    pub(in crate::parser) fn parse_struct(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<StructDecl> {
         self.expect_nv(TokenType::Keyword, "struct")?;
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
@@ -32,5 +35,4 @@ impl Parser {
     }
 
     // note: parse enum with variants
-
 }

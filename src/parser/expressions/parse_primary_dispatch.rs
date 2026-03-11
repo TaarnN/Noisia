@@ -85,9 +85,7 @@ impl Parser {
                 let b = tok.lexeme == "true";
                 Ok(Expr::Literal(Literal::Bool(b)))
             }
-            TokenType::Identifier
-            | TokenType::ModulePath
-            | TokenType::Keyword => {
+            TokenType::Identifier | TokenType::ModulePath | TokenType::Keyword => {
                 let ident = self.advance().lexeme.clone();
                 if ident == "new" && self.peek().token_type == TokenType::LeftParen {
                     return self.parse_pointer_new_with(PointerType::ManagedPointer);
@@ -151,7 +149,9 @@ impl Parser {
 
                 if let Some(pipe_idx) = self.find_list_comp_pipe(self.idx) {
                     if pipe_idx == self.idx {
-                        return Err(self.error_here("expected expression before list comprehension"));
+                        return Err(
+                            self.error_here("expected expression before list comprehension")
+                        );
                     }
 
                     let first_expr = self.parse_expression_slice(pipe_idx)?;
@@ -212,6 +212,4 @@ impl Parser {
             }),
         }
     }
-
-
 }

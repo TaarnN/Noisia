@@ -12,6 +12,4 @@ impl Parser {
         let body = self.parse_block()?;
         Ok(Stmt::TemporalRetry { max_times, body })
     }
-
-
 }

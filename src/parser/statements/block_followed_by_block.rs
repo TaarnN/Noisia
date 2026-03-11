@@ -31,5 +31,4 @@ impl Parser {
     }
 
     // note: parse optional config block then required body block
-
 }

@@ -4,7 +4,13 @@ impl Parser {
     pub(in crate::parser) fn parse_rewind_parts(
         &mut self,
         allow_else: bool,
-    ) -> ParseResult<(Option<Expr>, Option<Expr>, Option<Expr>, Option<Block>, Option<Expr>)> {
+    ) -> ParseResult<(
+        Option<Expr>,
+        Option<Expr>,
+        Option<Expr>,
+        Option<Block>,
+        Option<Expr>,
+    )> {
         let rewind_tok = self.expect_word("rewind")?;
         let rewind_line = rewind_tok.line;
 
@@ -47,5 +53,4 @@ impl Parser {
     }
 
     // note: parse checkpoint statement
-
 }

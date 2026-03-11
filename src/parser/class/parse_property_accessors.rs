@@ -44,10 +44,9 @@ impl Parser {
                 setter_param = Some(param_name);
                 setter_body = Some(body);
             } else {
-                return Err(self.error_here(format!(
-                    "Unsupported property accessor: {}",
-                    self.peek()
-                )));
+                return Err(
+                    self.error_here(format!("Unsupported property accessor: {}", self.peek()))
+                );
             }
 
             if self.peek().token_type == TokenType::Comma
@@ -62,5 +61,4 @@ impl Parser {
     }
 
     // note: parse init with params and block
-
 }

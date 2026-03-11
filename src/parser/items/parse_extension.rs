@@ -1,9 +1,12 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_extension(&mut self, attributes: Vec<String>) -> ParseResult<ExtensionDecl> {
+    pub(in crate::parser) fn parse_extension(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<ExtensionDecl> {
         self.expect_nv(TokenType::Keyword, "extension")?;
-        
+
         let (receiver, target) = if self.match_one(TokenType::LeftParen) {
             // extension (name: Type) form
             let receiver_name = self.expect(TokenType::Identifier)?.lexeme;
@@ -35,5 +38,4 @@ impl Parser {
     }
 
     // note: parse igm name! { pattern = /.../ expand(m: Match) = Expr }
-
 }

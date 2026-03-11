@@ -71,12 +71,9 @@ impl Parser {
 
         let mut context_params = Vec::new();
         let has_context_params = self.peek().token_type == TokenType::LeftParen
-            && self
-                .tokens
-                .get(self.idx + 1)
-                .map_or(false, |tok| {
-                    tok.token_type == TokenType::Keyword && tok.lexeme == "using"
-                });
+            && self.tokens.get(self.idx + 1).map_or(false, |tok| {
+                tok.token_type == TokenType::Keyword && tok.lexeme == "using"
+            });
         if has_context_params {
             self.expect(TokenType::LeftParen)?;
             self.expect_nv(TokenType::Keyword, "using")?;
@@ -143,5 +140,4 @@ impl Parser {
     }
 
     // note: parse generic params
-
 }

@@ -7,6 +7,4 @@ impl Parser {
             TokenType::Identifier | TokenType::Keyword | TokenType::ModulePath
         )
     }
-
-
 }

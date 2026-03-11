@@ -6,5 +6,4 @@ impl Parser {
     }
 
     // note: collect one raw debug temporal clause
-
 }

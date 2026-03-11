@@ -34,10 +34,7 @@ impl Parser {
 
         let kw = self.peek().lexeme.clone();
         if visibility.is_some() && !self.is_function_start() {
-            return Err(self.error_here(format!(
-                "Visibility modifier not allowed before {}",
-                kw
-            )));
+            return Err(self.error_here(format!("Visibility modifier not allowed before {}", kw)));
         }
 
         if self.is_function_start() {
@@ -114,13 +111,9 @@ impl Parser {
                 let c = self.parse_class(attributes)?;
                 Ok(Item::Class(c))
             }
-            _ => Err(self.error_here(format!(
-                "Unsupported top-level keyword: {}",
-                kw
-            ))),
+            _ => Err(self.error_here(format!("Unsupported top-level keyword: {}", kw))),
         }
     }
 
     // note: read extends/with/implements
-
 }

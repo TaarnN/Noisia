@@ -14,5 +14,4 @@ impl Parser {
     }
 
     // note: read all @attrs into list
-
 }

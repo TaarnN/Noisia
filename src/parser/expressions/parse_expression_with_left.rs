@@ -1,7 +1,11 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_expression_with_left(&mut self, mut left: Expr, min_prec: u8) -> ParseResult<Expr> {
+    pub(in crate::parser) fn parse_expression_with_left(
+        &mut self,
+        mut left: Expr,
+        min_prec: u8,
+    ) -> ParseResult<Expr> {
         loop {
             let op_tok = self.peek().clone();
             let (prec, right_assoc) = match op_precedence(&op_tok) {
@@ -83,5 +87,4 @@ impl Parser {
     }
 
     // note: parse if/elif/else expression
-
 }

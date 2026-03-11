@@ -21,6 +21,4 @@ impl Parser {
         };
         Ok(Stmt::Emit { target, body })
     }
-
-
 }

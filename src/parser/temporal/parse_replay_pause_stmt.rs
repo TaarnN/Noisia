@@ -18,6 +18,4 @@ impl Parser {
         }
         Ok(Stmt::ReplayPause { each, checkpoint })
     }
-
-
 }

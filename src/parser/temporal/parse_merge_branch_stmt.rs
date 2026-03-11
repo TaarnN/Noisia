@@ -18,6 +18,4 @@ impl Parser {
         }
         Ok(Stmt::MergeBranch { branch, target })
     }
-
-
 }

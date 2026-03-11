@@ -24,6 +24,4 @@ impl Parser {
         }
         Ok(Stmt::Commit { metadata })
     }
-
-
 }

@@ -1,7 +1,9 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_temporal_config_and_body(&mut self) -> ParseResult<(Option<Expr>, Block)> {
+    pub(in crate::parser) fn parse_temporal_config_and_body(
+        &mut self,
+    ) -> ParseResult<(Option<Expr>, Block)> {
         if self.peek().token_type != TokenType::LeftBrace {
             return Err(self.error_here("Expected temporal block"));
         }
@@ -17,5 +19,4 @@ impl Parser {
     }
 
     // note: shared rewind parser for statement/expression forms
-
 }

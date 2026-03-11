@@ -9,5 +9,4 @@ impl Parser {
     }
 
     // note: require token type or fail
-
 }

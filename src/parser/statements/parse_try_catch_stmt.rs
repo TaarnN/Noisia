@@ -24,5 +24,4 @@ impl Parser {
     }
 
     // note: parse string literal value
-
 }

@@ -7,6 +7,4 @@ impl Parser {
         let body = self.parse_block()?;
         Ok(Stmt::Replay { recording, body })
     }
-
-
 }

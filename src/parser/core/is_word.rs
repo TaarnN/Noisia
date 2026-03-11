@@ -8,5 +8,4 @@ impl Parser {
     }
 
     // note: consume keyword/identifier text when present
-
 }

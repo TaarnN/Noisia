@@ -18,5 +18,4 @@ impl Parser {
     }
 
     // note: eat token by type if present
-
 }

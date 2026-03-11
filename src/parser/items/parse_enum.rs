@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_enum(&mut self, attributes: Vec<String>) -> ParseResult<EnumDecl> {
+    pub(in crate::parser) fn parse_enum(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<EnumDecl> {
         self.expect_nv(TokenType::Keyword, "enum")?;
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
@@ -87,5 +90,4 @@ impl Parser {
     }
 
     // note: parse mixin with fields, properties, delegates, and methods
-
 }

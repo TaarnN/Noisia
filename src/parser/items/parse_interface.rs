@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_interface(&mut self, attributes: Vec<String>) -> ParseResult<InterfaceDecl> {
+    pub(in crate::parser) fn parse_interface(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<InterfaceDecl> {
         self.expect_nv(TokenType::Keyword, "interface")?;
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
@@ -33,5 +36,4 @@ impl Parser {
     }
 
     // note: parse protocol with associated types, methods, and extensions
-
 }

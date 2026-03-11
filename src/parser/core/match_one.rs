@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: eat token by type and text
-
 }

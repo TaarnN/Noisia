@@ -3,4 +3,12 @@ name = "Noisia"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+inkwell-jit = ["dep:inkwell"]
+
 [dependencies]
+inkwell = { version = "0.7.1", optional = true, default-features = false, features = ["llvm20-1-prefer-dynamic"] }
+
+[patch.crates-io]
+inkwell_internals = { path = "vendor/inkwell_internals" }

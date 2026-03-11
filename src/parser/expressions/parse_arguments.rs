@@ -9,5 +9,4 @@ impl Parser {
     }
 
     // note: parse generic args until >
-
 }

@@ -2,8 +2,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 
-use crate::tokenizer::Token;
 use crate::style::Style;
+use crate::tokenizer::Token;
 use std::fmt;
 
 #[derive(Debug)]
@@ -46,22 +46,16 @@ impl ParseError {
                 let header = style.paint("error[parse] Unexpected token", &["1", "31"]);
                 let loc = style.fg_yellow(&format!("{}:{}", found.line, found.column));
                 let idx_note = style.dim(&format!("(token #{})", idx));
-                let expected_line = format!(
-                    "  {} {}",
-                    style.dim("expected:"),
-                    style.fg_cyan(expected)
-                );
+                let expected_line =
+                    format!("  {} {}", style.dim("expected:"), style.fg_cyan(expected));
                 let found_lexeme = if found.lexeme.is_empty() {
                     "<empty>".to_string()
                 } else {
                     format!("`{}`", found.lexeme.escape_default())
                 };
                 let found_value = format!("{:?} {}", found.token_type, found_lexeme);
-                let found_line = format!(
-                    "  {} {}",
-                    style.dim("found:"),
-                    style.fg_green(&found_value)
-                );
+                let found_line =
+                    format!("  {} {}", style.dim("found:"), style.fg_green(&found_value));
                 format!(
                     "{}\n  {} {} {}\n{}\n{}",
                     header,

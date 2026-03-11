@@ -17,5 +17,4 @@ impl Parser {
     }
 
     // note: avoid struct literal before block
-
 }

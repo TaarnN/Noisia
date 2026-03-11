@@ -127,6 +127,4 @@ impl Parser {
         let primary = self.parse_primary()?;
         self.parse_postfix(primary)
     }
-
-
 }

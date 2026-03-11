@@ -28,5 +28,4 @@ impl Parser {
     }
 
     // note: parse import path and symbols
-
 }

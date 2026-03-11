@@ -45,5 +45,4 @@ impl Parser {
     }
 
     // note: parse effect param types
-
 }

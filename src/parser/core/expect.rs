@@ -15,5 +15,4 @@ impl Parser {
     }
 
     // note: create a generic parse error at current token
-
 }

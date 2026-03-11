@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: detect debug temporal clause starts
-
 }

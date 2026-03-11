@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_tokens_until_short_arrow(&mut self, context: &str) -> ParseResult<Vec<Token>> {
+    pub(in crate::parser) fn parse_tokens_until_short_arrow(
+        &mut self,
+        context: &str,
+    ) -> ParseResult<Vec<Token>> {
         let mut raw = Vec::new();
         let mut paren_depth = 0usize;
         let mut brace_depth = 0usize;
@@ -36,6 +39,4 @@ impl Parser {
 
         Ok(raw)
     }
-
-
 }

@@ -12,5 +12,4 @@ impl Parser {
     }
 
     // note: handle > or split >> for generics
-
 }

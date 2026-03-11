@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_phrase_expr_on_line(&mut self, stop_words: &[&str]) -> ParseResult<Expr> {
+    pub(in crate::parser) fn parse_phrase_expr_on_line(
+        &mut self,
+        stop_words: &[&str],
+    ) -> ParseResult<Expr> {
         let start_line = self.peek().line;
         let mut words: Vec<String> = Vec::new();
 
@@ -32,6 +35,4 @@ impl Parser {
 
         Ok(Expr::Phrase(words.join(" ")))
     }
-
-
 }

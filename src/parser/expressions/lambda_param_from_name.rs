@@ -11,6 +11,4 @@ impl Parser {
             default: None,
         }
     }
-
-
 }

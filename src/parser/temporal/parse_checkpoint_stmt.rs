@@ -20,8 +20,7 @@ impl Parser {
                 && matches!(
                     self.tokens.get(self.idx + 1),
                     Some(t) if t.token_type == TokenType::LeftBrace
-                )
-            {
+                ) {
                 self.advance();
                 self.parse_named_record_literal("config")?
             } else if self.peek().token_type == TokenType::LeftBrace {
@@ -77,5 +76,4 @@ impl Parser {
     }
 
     // note: parse rewind statement
-
 }

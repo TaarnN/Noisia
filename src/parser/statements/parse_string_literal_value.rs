@@ -17,5 +17,4 @@ impl Parser {
     }
 
     // note: parse record literal in braces with a synthetic name
-
 }

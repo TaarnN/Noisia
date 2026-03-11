@@ -5,9 +5,8 @@ impl Parser {
         let (subject, target, condition, query, else_expr) = self.parse_rewind_parts(false)?;
 
         if else_expr.is_some() || self.is_word("else") {
-            return Err(self.error_here(
-                "Rewind statement does not support 'else'; use the expression form",
-            ));
+            return Err(self
+                .error_here("Rewind statement does not support 'else'; use the expression form"));
         }
 
         if self.peek().token_type == TokenType::Semicolon {
@@ -23,5 +22,4 @@ impl Parser {
     }
 
     // note: parse rewind expression with fallback
-
 }

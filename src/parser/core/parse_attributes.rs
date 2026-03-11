@@ -13,5 +13,4 @@ impl Parser {
     }
 
     // note: read visibility, default public
-
 }

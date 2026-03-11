@@ -42,6 +42,4 @@ impl Parser {
             arms,
         })
     }
-
-
 }

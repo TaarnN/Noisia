@@ -5,6 +5,4 @@ impl Parser {
         let left = self.parse_unary_or_primary()?;
         self.parse_expression_with_left(left, min_prec)
     }
-
-
 }

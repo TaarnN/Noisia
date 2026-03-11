@@ -87,5 +87,4 @@ impl Parser {
     }
 
     // note: parse list of patterns
-
 }

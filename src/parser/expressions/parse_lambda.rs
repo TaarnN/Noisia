@@ -75,5 +75,4 @@ impl Parser {
     }
 
     // note: parse macro name!(params) { ... }
-
 }

@@ -111,21 +111,23 @@ impl Token {
             format!("`{}`", self.lexeme.escape_default())
         };
 
-        let type_colored = if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
-            style.paint(&type_padded, &["1", "31"])
-        } else if is_operator_token(&self.token_type) {
-            style.paint(&type_padded, &["1", "33"])
-        } else if is_literal_token(&self.token_type) {
-            style.paint(&type_padded, &["1", "35"])
-        } else {
-            style.paint(&type_padded, &["1", "36"])
-        };
+        let type_colored =
+            if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
+                style.paint(&type_padded, &["1", "31"])
+            } else if is_operator_token(&self.token_type) {
+                style.paint(&type_padded, &["1", "33"])
+            } else if is_literal_token(&self.token_type) {
+                style.paint(&type_padded, &["1", "35"])
+            } else {
+                style.paint(&type_padded, &["1", "36"])
+            };
 
-        let lexeme_colored = if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
-            style.fg_red(&lexeme_raw)
-        } else {
-            style.fg_green(&lexeme_raw)
-        };
+        let lexeme_colored =
+            if is_error_token(&self.token_type) || matches!(self.token_type, TokenType::EOF) {
+                style.fg_red(&lexeme_raw)
+            } else {
+                style.fg_green(&lexeme_raw)
+            };
 
         format!(
             "{} {} {}",
@@ -504,7 +506,11 @@ impl Tokenizer {
         let start_column = self.column;
 
         // Handle regex literals in pattern contexts
-        if self.regex_allowed() && self.peek() == '/' && self.peek_next() != '/' && self.peek_next() != '*' {
+        if self.regex_allowed()
+            && self.peek() == '/'
+            && self.peek_next() != '/'
+            && self.peek_next() != '*'
+        {
             return Some(self.regex_literal());
         }
 
@@ -917,8 +923,8 @@ impl Tokenizer {
             // Common units
             let valid_units = [
                 "km", "m", "cm", "mm", "h", "hour", "hours", "hr", "hrs", "min", "minute",
-                "minutes", "s", "sec", "second", "seconds", "ms", "deg", "rad", "KB", "MB",
-                "GB", "TB", "kb", "mb", "gb", "tb",
+                "minutes", "s", "sec", "second", "seconds", "ms", "deg", "rad", "KB", "MB", "GB",
+                "TB", "kb", "mb", "gb", "tb",
             ];
             if valid_units.contains(&unit.as_str()) {
                 lexeme.push_str(&unit);
@@ -946,7 +952,8 @@ impl Tokenizer {
 
         while self.peek().is_alphanumeric()
             || self.peek() == '_'
-            || (self.peek() == '-' && (self.peek_next().is_alphanumeric() || self.peek_next() == '_'))
+            || (self.peek() == '-'
+                && (self.peek_next().is_alphanumeric() || self.peek_next() == '_'))
         {
             lexeme.push(self.advance());
         }

@@ -16,6 +16,4 @@ impl Parser {
             Visibility::Public
         }
     }
-
-
 }

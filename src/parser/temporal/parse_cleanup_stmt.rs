@@ -22,5 +22,4 @@ impl Parser {
     }
 
     // note: parse batch temporal statement
-
 }

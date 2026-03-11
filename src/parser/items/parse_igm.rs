@@ -4,15 +4,15 @@ impl Parser {
     pub(in crate::parser) fn parse_igm(&mut self, attributes: Vec<String>) -> ParseResult<IGMDecl> {
         self.expect_nv(TokenType::Keyword, "igm")?;
         let name = self.expect_ident_like()?;
-        
+
         // Parse ! after name
         if !(self.peek().token_type == TokenType::Operator && self.peek().lexeme == "!") {
             return Err(self.error_here("Expected '!' after igm name".to_string()));
         }
         self.advance(); // consume '!'
-        
+
         self.expect(TokenType::LeftBrace)?;
-        
+
         // Parse pattern = /regex/
         self.expect_word("pattern")?;
         self.expect_nv(TokenType::Operator, "=")?;
@@ -21,7 +21,7 @@ impl Parser {
         } else {
             return Err(self.error_here("Expected regex literal".to_string()));
         };
-        
+
         // Parse expand(m: Match) = Expr
         self.expect_word("expand")?;
         self.expect(TokenType::LeftParen)?;
@@ -44,12 +44,12 @@ impl Parser {
             },
         )?;
         self.expect(TokenType::RightParen)?;
-        
+
         self.expect_nv(TokenType::Operator, "=")?;
         let expand = Some(self.parse_expression(0)?);
-        
+
         self.expect(TokenType::RightBrace)?;
-        
+
         Ok(IGMDecl {
             attributes,
             name: name.lexeme,
@@ -60,5 +60,4 @@ impl Parser {
     }
 
     // note: parse plugin name when <expr>
-
 }

@@ -28,5 +28,4 @@ impl Parser {
     }
 
     // note: parse on sequence block
-
 }

@@ -16,5 +16,4 @@ impl Parser {
     }
 
     // note: parse fn with given attrs+vis
-
 }

@@ -9,11 +9,9 @@ impl Parser {
         let mut i = self.idx + 1;
         match self.tokens.get(i) {
             Some(tok)
-                if (tok.token_type == TokenType::Identifier || tok.token_type == TokenType::Keyword)
-                    && tok.lexeme != "in" =>
-            {
-                {}
-            }
+                if (tok.token_type == TokenType::Identifier
+                    || tok.token_type == TokenType::Keyword)
+                    && tok.lexeme != "in" => {}
             _ => return false,
         }
         i += 1;
@@ -41,6 +39,4 @@ impl Parser {
             }
         }
     }
-
-
 }

@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: accept identifier or keyword as name
-
 }

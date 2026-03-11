@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_class(&mut self, attributes: Vec<String>) -> ParseResult<ClassDecl> {
+    pub(in crate::parser) fn parse_class(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<ClassDecl> {
         self.expect_nv(TokenType::Keyword, "class")?;
 
         let name_tok = self.expect_ident_like()?;
@@ -122,7 +125,8 @@ impl Parser {
             if self.peek().token_type == TokenType::Keyword && self.peek().lexeme == "mutable"
                 || self.peek().token_type == TokenType::Identifier
             {
-                let member = self.parse_class_field_or_property(member_attributes, member_visibility)?;
+                let member =
+                    self.parse_class_field_or_property(member_attributes, member_visibility)?;
                 match member {
                     FieldOrProperty::Field(field) => fields.push(field),
                     FieldOrProperty::Property(prop) => properties.push(prop),
@@ -135,10 +139,9 @@ impl Parser {
                 continue;
             }
 
-            return Err(self.error_here(format!(
-                "Unsupported member in class body: {}",
-                self.peek()
-            )));
+            return Err(
+                self.error_here(format!("Unsupported member in class body: {}", self.peek()))
+            );
         }
 
         self.expect(TokenType::RightBrace)?;
@@ -159,6 +162,4 @@ impl Parser {
             methods,
         })
     }
-
-
 }

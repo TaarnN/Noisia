@@ -6,5 +6,4 @@ impl Parser {
     }
 
     // note: move index and return old token
-
 }

@@ -27,5 +27,4 @@ impl Parser {
     }
 
     // note: parse struct declaration
-
 }

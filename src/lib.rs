@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+pub mod interpreter;
 pub mod parser;
 pub mod ptypes;
 pub mod style;

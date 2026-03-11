@@ -1,7 +1,9 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_debug_temporal_clause_tokens(&mut self) -> ParseResult<Vec<Token>> {
+    pub(in crate::parser) fn parse_debug_temporal_clause_tokens(
+        &mut self,
+    ) -> ParseResult<Vec<Token>> {
         let mut raw = Vec::new();
         let mut paren_depth = 0usize;
         let mut brace_depth = 0usize;
@@ -49,5 +51,4 @@ impl Parser {
     }
 
     // note: collect tokens until top-level :> for temporal patterns
-
 }

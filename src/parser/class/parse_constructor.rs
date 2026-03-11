@@ -54,5 +54,4 @@ impl Parser {
     }
 
     // note: read ModulePath or ident::ident
-
 }

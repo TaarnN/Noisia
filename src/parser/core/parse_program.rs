@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: parse one top item with attrs
-
 }

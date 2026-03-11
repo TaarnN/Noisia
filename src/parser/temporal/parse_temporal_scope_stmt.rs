@@ -18,5 +18,4 @@ impl Parser {
     }
 
     // note: parse temporal transaction statement
-
 }

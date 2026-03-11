@@ -50,5 +50,4 @@ impl Parser {
     }
 
     // note: parse constraint list
-
 }

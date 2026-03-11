@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_protocol(&mut self, attributes: Vec<String>) -> ParseResult<ProtocolDecl> {
+    pub(in crate::parser) fn parse_protocol(
+        &mut self,
+        attributes: Vec<String>,
+    ) -> ParseResult<ProtocolDecl> {
         self.expect_nv(TokenType::Keyword, "protocol")?;
         let name_tok = self.expect(TokenType::Identifier)?;
         let name = name_tok.lexeme.clone();
@@ -80,5 +83,4 @@ impl Parser {
     }
 
     // note: parse impl block
-
 }

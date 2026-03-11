@@ -23,6 +23,4 @@ impl Parser {
         }
         Self::is_phrase_token(next)
     }
-
-
 }

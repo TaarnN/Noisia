@@ -5,6 +5,4 @@ impl Parser {
         self.expect_nv(TokenType::Keyword, "if")?;
         self.parse_if_expr_tail()
     }
-
-
 }

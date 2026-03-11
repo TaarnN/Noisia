@@ -134,10 +134,7 @@ fn split_indent(line: &str) -> (&str, &str) {
 }
 
 fn starts_with_closer(trimmed: &str) -> bool {
-    matches!(
-        trimmed.chars().next(),
-        Some('}') | Some(']') | Some(')')
-    )
+    matches!(trimmed.chars().next(), Some('}') | Some(']') | Some(')'))
 }
 
 fn strip_string_delimiters(lexeme: &str) -> String {
@@ -168,15 +165,14 @@ enum FieldOrProperty {
     Property(ClassPropertyDecl),
 }
 
-mod core;
-mod items;
 mod class;
-mod types;
+mod core;
+mod expressions;
+mod items;
 mod patterns;
 mod statements;
 mod temporal;
-mod expressions;
-
+mod types;
 
 // note: operator precedence table
 pub fn op_precedence(tok: &Token) -> Option<(u8, bool)> {
@@ -229,7 +225,10 @@ mod tests {
         );
 
         match &body.stmts[0] {
-            Stmt::Let { expr: Some(Expr::Await(inner)), .. } => {
+            Stmt::Let {
+                expr: Some(Expr::Await(inner)),
+                ..
+            } => {
                 assert!(matches!(inner.as_ref(), Expr::Ident(name) if name == "task"));
             }
             other => panic!("expected let-await statement, got {other:?}"),
@@ -246,10 +245,20 @@ mod tests {
             "#,
         );
 
-        assert_eq!(body.stmts.len(), 1, "ptr->method() should remain one statement");
+        assert_eq!(
+            body.stmts.len(),
+            1,
+            "ptr->method() should remain one statement"
+        );
         match &body.stmts[0] {
             Stmt::Let {
-                expr: Some(Expr::MethodCall { object, method, args, .. }),
+                expr:
+                    Some(Expr::MethodCall {
+                        object,
+                        method,
+                        args,
+                        ..
+                    }),
                 ..
             } => {
                 assert_eq!(method, "read");
@@ -281,7 +290,12 @@ mod tests {
             } => {
                 assert!(matches!(left.as_ref(), Expr::Ident(name) if name == "data"));
                 match right.as_ref() {
-                    Expr::MethodCall { object, method, args, .. } => {
+                    Expr::MethodCall {
+                        object,
+                        method,
+                        args,
+                        ..
+                    } => {
                         assert_eq!(method, "transform");
                         assert_eq!(args.len(), 1);
                         assert!(matches!(args[0], Expr::Ident(ref name) if name == "*"));
@@ -313,7 +327,11 @@ mod tests {
         match &body.stmts[0] {
             Stmt::Expr(Expr::MethodCall { method, args, .. }) => {
                 assert_eq!(method, "withFile");
-                assert_eq!(args.len(), 2, "trailing closure should be appended as final arg");
+                assert_eq!(
+                    args.len(),
+                    2,
+                    "trailing closure should be appended as final arg"
+                );
                 match args.last().unwrap() {
                     Expr::Lambda { params, .. } => {
                         assert_eq!(params.len(), 1);

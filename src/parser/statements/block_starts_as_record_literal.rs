@@ -9,15 +9,16 @@ impl Parser {
             return false;
         }
 
-        match (self.tokens.get(start_idx + 1), self.tokens.get(start_idx + 2)) {
+        match (
+            self.tokens.get(start_idx + 1),
+            self.tokens.get(start_idx + 2),
+        ) {
             (Some(t1), _) if t1.token_type == TokenType::RightBrace => true,
-            (
-                Some(t1),
-                Some(t2),
-            ) if matches!(t1.token_type, TokenType::Identifier | TokenType::Keyword)
-                && (t2.token_type == TokenType::Colon
-                    || t2.token_type == TokenType::Comma
-                    || t2.token_type == TokenType::RightBrace) =>
+            (Some(t1), Some(t2))
+                if matches!(t1.token_type, TokenType::Identifier | TokenType::Keyword)
+                    && (t2.token_type == TokenType::Colon
+                        || t2.token_type == TokenType::Comma
+                        || t2.token_type == TokenType::RightBrace) =>
             {
                 true
             }
@@ -26,5 +27,4 @@ impl Parser {
     }
 
     // note: check if a block is followed by another block
-
 }

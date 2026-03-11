@@ -17,6 +17,4 @@ impl Parser {
             target,
         })
     }
-
-
 }

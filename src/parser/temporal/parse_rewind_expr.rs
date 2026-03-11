@@ -4,9 +4,7 @@ impl Parser {
     pub(in crate::parser) fn parse_rewind_expr(&mut self) -> ParseResult<Expr> {
         let (subject, target, condition, query, else_expr) = self.parse_rewind_parts(true)?;
         if else_expr.is_none() && subject.is_none() {
-            return Err(self.error_here(
-                "Expected 'else <expr>' in rewind expression form",
-            ));
+            return Err(self.error_here("Expected 'else <expr>' in rewind expression form"));
         }
 
         Ok(Expr::Rewind {
@@ -17,6 +15,4 @@ impl Parser {
             else_expr: else_expr.map(Box::new),
         })
     }
-
-
 }

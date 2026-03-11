@@ -11,5 +11,4 @@ impl Parser {
     }
 
     // note: look at current token or fake EOF
-
 }

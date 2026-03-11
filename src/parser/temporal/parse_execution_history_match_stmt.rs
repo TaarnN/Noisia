@@ -35,5 +35,4 @@ impl Parser {
     }
 
     // note: parse handle temporal effects statement
-
 }

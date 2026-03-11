@@ -1,7 +1,10 @@
 use super::super::*;
 
 impl Parser {
-    pub(in crate::parser) fn parse_pattern_list(&mut self, end: TokenType) -> ParseResult<(Vec<Pattern>, Vec<String>)> {
+    pub(in crate::parser) fn parse_pattern_list(
+        &mut self,
+        end: TokenType,
+    ) -> ParseResult<(Vec<Pattern>, Vec<String>)> {
         let mut patterns = Vec::new();
         let mut bindings = Vec::new();
         while !self.is_at_end() && self.peek().token_type != end {
@@ -22,5 +25,4 @@ impl Parser {
     }
 
     // note: parse struct pattern fields
-
 }
